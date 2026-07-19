@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Edit2, Trash2, X, Upload } from 'lucide-react';
-import { expenseAPI } from '../services/api';
 import { useHouse } from '../contexts/HouseContext';
 import { useAuth } from '../contexts/AuthContext';
+import { expenseAPI } from '../services/api';
 import {
   formatCurrency,
   formatDate,
@@ -12,53 +11,57 @@ import {
   getCategoryInfo,
   SPLIT_TYPES,
 } from '../utils/formatters';
-import { validateAmount } from '../utils/validators';
 
-function ExpenseModal({ expense, members, currentUser, onClose, onSave }) {
+function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) {
   const isEdit = !!expense;
-  const [form, setForm] = useState({
-    description: expense?.description || '',
-    amount: expense?.amount || '',
-    category: expense?.category || 'other',
-    date: expense?.date ? expense.date.slice(0, 10) : new Date().toISOString().slice(0, 10),
-    paid_by: expense?.paid_by || currentUser?.id || '',
-    split_type: expense?.split_type || 'equal',
-    split_with: expense?.split_with || members.map((m) => m.user_id || m.id),
-    notes: expense?.notes || '',
-    receipt: null,
-  });
-  const [customSplits, setCustomSplits] = useState({});
+  const [description, setDescription] = useState(expense?.description || '');
+  const [amount, setAmount] = useState(expense?.amount || '');
+  const [category, setCategory] = useState(expense?.category || 'other');
+  const [date, setDate] = useState(
+    expense?.date ? expense.date.slice(0, 10) : new Date().toISOString().slice(0, 10)
+  );
+  const [paidBy, setPaidBy] = useState(expense?.paid_by || currentUser?.id || '');
+  const [splitType, setSplitType] = useState(expense?.split_type || 'equal');
+  const [splitWith, setSplitWith] = useState(
+    expense?.split_with || members.map((m) => m.user_id || m.id)
+  );
+  const [notes, setNotes] = useState(expense?.notes || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const toggleSplitMember = (memberId) => {
-    setForm((p) => ({
-      ...p,
-      split_with: p.split_with.includes(memberId)
-        ? p.split_with.filter((id) => id !== memberId)
-        : [...p.split_with, memberId],
-    }));
-  };
-
-  const handleReceiptChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setForm((p) => ({ ...p, receipt: reader.result }));
-    reader.readAsDataURL(file);
+    setSplitWith((prev) =>
+      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
+    );
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!validateAmount(form.amount)) { setError('Please enter a valid amount.'); return; }
-    if (!form.description.trim()) { setError('Description is required.'); return; }
-    if (form.split_with.length === 0) { setError('Select at least one member to split with.'); return; }
+
+    if (!description.trim()) {
+      setError('Description is required.');
+      return;
+    }
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setError('Please enter a valid positive amount.');
+      return;
+    }
+    if (splitWith.length === 0) {
+      setError('Please select at least one roommate to split with.');
+      return;
+    }
 
     const payload = {
-      ...form,
-      amount: Number(form.amount),
-      custom_splits: form.split_type !== 'equal' ? customSplits : undefined,
+      description,
+      amount: numAmount,
+      category,
+      date,
+      paid_by: paidBy,
+      split_type: splitType,
+      split_with: splitWith,
+      notes,
     };
 
     try {
@@ -70,133 +73,132 @@ function ExpenseModal({ expense, members, currentUser, onClose, onSave }) {
       }
       onSave();
     } catch (err) {
-      setError(err?.response?.data?.message || 'Failed to save expense.');
+      setError(err?.response?.data?.message || 'Failed to save expense. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const equalShare = form.split_with.length > 0
-    ? Number(form.amount) / form.split_with.length
-    : 0;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">{isEdit ? 'Edit Expense' : 'Add Expense'}</h2>
-          <button className="modal-close" onClick={onClose}><X size={18} /></button>
+    <div className="bottom-sheet-overlay" onClick={onClose}>
+      <div className="bottom-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="bottom-sheet-header">
+          <h2 style={{ fontSize: '18px', fontWeight: 700 }}>
+            {isEdit ? 'Edit Expense' : 'Add Expense'}
+          </h2>
+          <button 
+            onClick={onClose} 
+            style={{ border: 'none', background: 'transparent', fontSize: '20px', cursor: 'pointer', color: 'var(--text-secondary)' }}
+          >
+            ✕
+          </button>
         </div>
 
-        {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>⚠️ {error}</div>}
+        {error && <div className="alert alert-error">{error}</div>}
 
         <form onSubmit={handleSubmit}>
-          {/* Description */}
           <div className="form-group">
-            <label className="label">Description *</label>
-            <input className="input" placeholder="e.g. Electricity bill for June"
-              value={form.description} onChange={(e) => setForm(p => ({ ...p, description: e.target.value }))} required />
+            <label className="label" htmlFor="expense-desc">Description *</label>
+            <input
+              id="expense-desc"
+              className="input"
+              type="text"
+              placeholder="E.g. Groceries, Wi-Fi bill, Gas refill"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              required
+            />
           </div>
 
-          {/* Amount + Category */}
           <div className="grid-2">
             <div className="form-group">
-              <label className="label">Amount (₹) *</label>
-              <input className="input" type="number" placeholder="0.00" step="0.01" min="0"
-                value={form.amount} onChange={(e) => setForm(p => ({ ...p, amount: e.target.value }))} required />
+              <label className="label" htmlFor="expense-amt">Amount (₹) *</label>
+              <input
+                id="expense-amt"
+                className="input"
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                required
+              />
             </div>
             <div className="form-group">
-              <label className="label">Category</label>
-              <select className="input" value={form.category} onChange={(e) => setForm(p => ({ ...p, category: e.target.value }))}>
+              <label className="label" htmlFor="expense-cat">Category</label>
+              <select
+                id="expense-cat"
+                className="select"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
                 {EXPENSE_CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>{c.icon} {c.label}</option>
+                  <option key={c.value} value={c.value}>
+                    {c.icon} {c.label}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Date + Paid By */}
           <div className="grid-2">
             <div className="form-group">
-              <label className="label">Date</label>
-              <input className="input" type="date" value={form.date}
-                onChange={(e) => setForm(p => ({ ...p, date: e.target.value }))} />
+              <label className="label" htmlFor="expense-date">Date</label>
+              <input
+                id="expense-date"
+                className="input"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
             </div>
             <div className="form-group">
-              <label className="label">Paid By</label>
-              <select className="input" value={form.paid_by} onChange={(e) => setForm(p => ({ ...p, paid_by: e.target.value }))}>
+              <label className="label" htmlFor="expense-payer">Paid By</label>
+              <select
+                id="expense-payer"
+                className="select"
+                value={paidBy}
+                onChange={(e) => setPaidBy(e.target.value)}
+              >
                 {members.map((m) => (
-                  <option key={m.user_id || m.id} value={m.user_id || m.id}>{m.name}</option>
+                  <option key={m.user_id || m.id} value={m.user_id || m.id}>
+                    {m.name}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Split Type */}
           <div className="form-group">
-            <label className="label">Split Type</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {SPLIT_TYPES.map((st) => (
-                <button
-                  key={st.value}
-                  type="button"
-                  className={`chip ${form.split_type === st.value ? 'active' : ''}`}
-                  onClick={() => setForm(p => ({ ...p, split_type: st.value }))}
-                >
-                  {st.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Split With */}
-          <div className="form-group">
-            <label className="label">Split With</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 200, overflowY: 'auto', padding: 4 }}>
+            <label className="label">Roommates Splitting With</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: '4px' }}>
               {members.map((m) => {
                 const memberId = m.user_id || m.id;
-                const isSelected = form.split_with.includes(memberId);
+                const isSelected = splitWith.includes(memberId);
                 return (
                   <div
                     key={memberId}
+                    onClick={() => toggleSplitMember(memberId)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 12,
-                      padding: '10px 14px',
+                      justifyContent: 'space-between',
+                      padding: '10px 12px',
                       background: isSelected ? 'var(--accent-blue-light)' : 'var(--bg-secondary)',
                       border: `1px solid ${isSelected ? 'var(--accent-blue)' : 'var(--border)'}`,
                       borderRadius: 'var(--radius)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s',
+                      cursor: 'pointer'
                     }}
-                    onClick={() => toggleSplitMember(memberId)}
                   >
-                    <div className="avatar avatar-sm">{getInitials(m.name)}</div>
-                    <span style={{ fontWeight: 600, fontSize: 14, flex: 1, color: 'var(--text-primary)' }}>{m.name}</span>
-                    {form.split_type === 'equal' && isSelected && form.amount && (
-                      <span style={{ fontSize: 13, color: 'var(--accent-blue)', fontWeight: 700 }}>
-                        {formatCurrency(equalShare)}
-                      </span>
-                    )}
-                    {(form.split_type === 'percentage' || form.split_type === 'custom') && isSelected && (
-                      <input
-                        type="number"
-                        className="input"
-                        style={{ width: 80, padding: '4px 8px', fontSize: 13, textAlign: 'center' }}
-                        placeholder={form.split_type === 'percentage' ? '%' : '₹'}
-                        value={customSplits[memberId] || ''}
-                        onChange={(e) => { e.stopPropagation(); setCustomSplits(p => ({ ...p, [memberId]: e.target.value })); }}
-                        onClick={(e) => e.stopPropagation()}
-                        min="0"
-                      />
-                    )}
+                    <span style={{ fontSize: '13px', fontWeight: 600 }}>{m.name}</span>
                     {isSelected ? (
-                      <div style={{ width: 20, height: 20, background: 'var(--accent-blue)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" /></svg>
-                      </div>
+                      <span style={{ color: 'var(--accent-blue)', fontWeight: 700, fontSize: '12px' }}>
+                        Active
+                      </span>
                     ) : (
-                      <div style={{ width: 20, height: 20, border: '2px solid var(--border)', borderRadius: '50%' }} />
+                      <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                        Excluded
+                      </span>
                     )}
                   </div>
                 );
@@ -204,42 +206,34 @@ function ExpenseModal({ expense, members, currentUser, onClose, onSave }) {
             </div>
           </div>
 
-          {/* Notes */}
           <div className="form-group">
-            <label className="label">Notes (Optional)</label>
-            <textarea className="input" rows={2} placeholder="Any additional notes..."
-              value={form.notes} onChange={(e) => setForm(p => ({ ...p, notes: e.target.value }))} />
+            <label className="label" htmlFor="expense-notes">Notes (Optional)</label>
+            <input
+              id="expense-notes"
+              className="input"
+              type="text"
+              placeholder="Additional details..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </div>
 
-          {/* Receipt Upload */}
-          <div className="form-group">
-            <label className="label">Receipt (Optional)</label>
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '10px 14px',
-                border: '1.5px dashed var(--border)',
-                borderRadius: 'var(--radius)',
-                cursor: 'pointer',
-                transition: 'border-color 0.2s',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent-blue)')}
-              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border)')}
+          <div style={{ display: 'flex', gap: 8, marginTop: '24px' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ flex: 1 }}
+              onClick={onClose}
             >
-              <Upload size={16} color="var(--text-muted)" />
-              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                {form.receipt ? '✅ Receipt attached' : 'Upload receipt image'}
-              </span>
-              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleReceiptChange} />
-            </label>
-          </div>
-
-          <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Saving...' : isEdit ? 'Update Expense' : 'Add Expense'}
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              style={{ flex: 1 }}
+              disabled={loading}
+            >
+              {loading ? 'Saving...' : 'Save Expense'}
             </button>
           </div>
         </form>
@@ -253,8 +247,9 @@ export default function ExpensesPage() {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [showSheet, setShowSheet] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
+  
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterMonth, setFilterMonth] = useState(getCurrentMonth());
@@ -264,31 +259,40 @@ export default function ExpensesPage() {
     if (!house) return;
     try {
       setLoading(true);
-      const res = await expenseAPI.getExpenses({ month: filterMonth, category: filterCategory !== 'all' ? filterCategory : undefined });
-      setExpenses(res.data.expenses || []);
-    } catch {
+      const res = await expenseAPI.getExpenses({
+        month: filterMonth,
+        category: filterCategory !== 'all' ? filterCategory : undefined,
+      });
+      setExpenses(res.data.expenses || res.data || []);
+    } catch (err) {
+      console.error(err);
       setExpenses([]);
     } finally {
       setLoading(false);
     }
   }, [house, filterMonth, filterCategory]);
 
-  useEffect(() => { fetchExpenses(); }, [fetchExpenses]);
+  useEffect(() => {
+    fetchExpenses();
+  }, [fetchExpenses]);
 
-  const filteredExpenses = useMemo(() =>
-    expenses.filter((e) =>
-      !search ||
-      e.description?.toLowerCase().includes(search.toLowerCase()) ||
-      e.paid_by_name?.toLowerCase().includes(search.toLowerCase())
-    ), [expenses, search]);
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      const matchSearch =
+        !search ||
+        e.description?.toLowerCase().includes(search.toLowerCase()) ||
+        e.paid_by_name?.toLowerCase().includes(search.toLowerCase());
+      return matchSearch;
+    });
+  }, [expenses, search]);
 
-  const deleteExpense = async (id) => {
-    if (!window.confirm('Delete this expense?')) return;
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this expense?')) return;
     try {
       setDeleteLoading(id);
       await expenseAPI.deleteExpense(id);
-      setExpenses((p) => p.filter((e) => e.id !== id));
-    } catch {
+      setExpenses((prev) => prev.filter((e) => e.id !== id));
+    } catch (err) {
       alert('Failed to delete expense.');
     } finally {
       setDeleteLoading(null);
@@ -296,177 +300,175 @@ export default function ExpensesPage() {
   };
 
   const handleSave = () => {
-    setShowModal(false);
+    setShowSheet(false);
     setEditingExpense(null);
     fetchExpenses();
   };
 
   const totalAmount = filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  const myTotal = filteredExpenses.reduce((sum, e) => sum + Number(e.my_share || 0), 0);
+  const myShareTotal = filteredExpenses.reduce((sum, e) => sum + Number(e.my_share || 0), 0);
 
   if (!house) {
     return (
-      <div className="empty-state">
-        <div className="empty-state-icon">🏠</div>
-        <div className="empty-state-title">No House Found</div>
-        <div className="empty-state-desc">Join or create a house to track expenses.</div>
-        <a href="/house" className="btn btn-primary" style={{ marginTop: 20 }}>Go to House</a>
+      <div className="container" style={{ paddingTop: '40px' }}>
+        <div className="card text-center" style={{ padding: '32px 16px' }}>
+          <span style={{ fontSize: '48px' }}>🏠</span>
+          <h2 style={{ fontSize: '20px', fontWeight: 700, marginTop: '16px', marginBottom: '8px' }}>
+            No House Associated
+          </h2>
+          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
+            Join or create a house first to view and log expenses.
+          </p>
+          <a href="/house" className="btn btn-primary">Go to House Setup</a>
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Expenses</h1>
-          <p className="page-subtitle">
-            {filteredExpenses.length} expense{filteredExpenses.length !== 1 ? 's' : ''} · Total: {formatCurrency(totalAmount)} · Your share: {formatCurrency(myTotal)}
-          </p>
+    <div className="container">
+      {/* Top Header Summary */}
+      <div className="card" style={{ background: 'var(--accent-blue)', color: '#ffffff', border: 'none' }}>
+        <h2 style={{ fontSize: '14px', fontWeight: 600, opacity: 0.9 }}>Total House Expenses</h2>
+        <div style={{ fontSize: '28px', fontWeight: 800, margin: '4px 0 12px 0' }}>
+          {formatCurrency(totalAmount)}
         </div>
-        <button className="btn btn-primary" onClick={() => { setEditingExpense(null); setShowModal(true); }}>
-          <Plus size={16} /> Add Expense
+        <div style={{ fontSize: '13px', opacity: 0.8 }}>
+          Your active share: <strong>{formatCurrency(myShareTotal)}</strong>
+        </div>
+        <button 
+          className="btn btn-secondary" 
+          style={{ marginTop: '16px', background: '#ffffff', color: 'var(--accent-blue)', border: 'none' }}
+          onClick={() => { setEditingExpense(null); setShowSheet(true); }}
+        >
+          ➕ Add New Expense
         </button>
       </div>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ flex: 1, minWidth: 200 }}>
-          <Search size={16} color="var(--text-muted)" />
-          <input placeholder="Search expenses..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      {/* Filter and Search Section */}
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <input
+          className="input"
+          type="text"
+          placeholder="🔍 Search descriptions or names..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="grid-2">
+          <select
+            className="select"
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+          >
+            <option value="all">All Categories</option>
+            {EXPENSE_CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.icon} {c.label}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input"
+            type="month"
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+          />
         </div>
-        <select className="input" style={{ width: 'auto', minWidth: 150 }} value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="all">All Categories</option>
-          {EXPENSE_CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>{c.icon} {c.label}</option>
-          ))}
-        </select>
-        <input className="input" type="month" style={{ width: 'auto' }} value={filterMonth}
-          onChange={(e) => setFilterMonth(e.target.value)} />
       </div>
 
-      {/* Expense list */}
+      {/* List of expenses */}
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-          <div className="loading-spinner" />
+        <div className="text-center" style={{ padding: '40px 0' }}>
+          <div className="loading-spinner" style={{ margin: '0 auto' }} />
         </div>
       ) : filteredExpenses.length === 0 ? (
-        <div className="empty-state" style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
-          <div className="empty-state-icon">💸</div>
+        <div className="empty-state">
+          <span className="empty-state-icon">💸</span>
           <div className="empty-state-title">No expenses found</div>
-          <div className="empty-state-desc">
-            {search ? 'No expenses match your search.' : 'Add your first shared expense!'}
-          </div>
-          {!search && (
-            <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={() => setShowModal(true)}>
-              <Plus size={15} /> Add First Expense
-            </button>
-          )}
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            Try updating your filters or add a new expense.
+          </p>
         </div>
       ) : (
-        <div className="table-wrapper">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Description</th>
-                <th>Paid By</th>
-                <th>Date</th>
-                <th>Amount</th>
-                <th>My Share</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredExpenses.map((expense) => {
-                const cat = getCategoryInfo(expense.category);
-                const isPaid = expense.my_status === 'paid';
-                const canEdit = expense.paid_by === user?.id || house.user_role === 'owner' || house.user_role === 'admin';
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filteredExpenses.map((exp, idx) => {
+            const cat = getCategoryInfo(exp.category);
+            const isPayerCurrentUser = exp.paid_by === user?.id;
+            const canEdit = isPayerCurrentUser || house.user_role === 'owner' || house.user_role === 'admin';
 
-                return (
-                  <tr key={expense.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{
-                          width: 36, height: 36, background: cat.color + '22', borderRadius: 10,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-                        }}>
-                          {cat.icon}
-                        </div>
-                        <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{cat.label}</span>
+            return (
+              <div
+                key={exp.id || idx}
+                className="list-item"
+                style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}
+              >
+                {/* Header row */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <span style={{ fontSize: '24px' }}>{cat.icon}</span>
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: 600 }}>{exp.description}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        Paid by {isPayerCurrentUser ? 'You' : exp.paid_by_name} · {formatDate(exp.date)}
                       </div>
-                    </td>
-                    <td>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{expense.description}</div>
-                      {expense.notes && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{expense.notes}</div>}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div className="avatar avatar-sm">{getInitials(expense.paid_by_name)}</div>
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>
-                          {expense.paid_by === user?.id ? 'You' : expense.paid_by_name}
-                        </span>
-                      </div>
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: 13, whiteSpace: 'nowrap' }}>
-                      {formatDate(expense.date)}
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
-                        {formatCurrency(expense.amount)}
-                      </span>
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 600, color: 'var(--accent-blue)' }}>
-                        {formatCurrency(expense.my_share || 0)}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${isPaid ? 'badge-green' : 'badge-orange'}`}>
-                        {isPaid ? '✓ Paid' : '⏳ Pending'}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        {canEdit && (
-                          <button
-                            className="btn-icon"
-                            style={{ width: 32, height: 32 }}
-                            onClick={() => { setEditingExpense(expense); setShowModal(true); }}
-                            title="Edit"
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                        )}
-                        {canEdit && (
-                          <button
-                            className="btn-icon"
-                            style={{ width: 32, height: 32, background: '#fee2e2', borderColor: '#fecaca', color: '#dc2626' }}
-                            onClick={() => deleteExpense(expense.id)}
-                            disabled={deleteLoading === expense.id}
-                            title="Delete"
-                          >
-                            {deleteLoading === expense.id ? '...' : <Trash2 size={14} />}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700 }}>{formatCurrency(exp.amount)}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      Share: {formatCurrency(exp.my_share)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Meta details & Actions */}
+                <div 
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderTop: '1px solid var(--border-light)',
+                    paddingTop: '8px',
+                    marginTop: '4px'
+                  }}
+                >
+                  <span className={`badge ${exp.my_status === 'paid' ? 'badge-green' : 'badge-orange'}`}>
+                    {exp.my_status}
+                  </span>
+                  
+                  {canEdit && (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '4px 8px' }}
+                        onClick={() => { setEditingExpense(exp); setShowSheet(true); }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        style={{ padding: '4px 8px' }}
+                        onClick={() => handleDelete(exp.id)}
+                        disabled={deleteLoading === exp.id}
+                      >
+                        {deleteLoading === exp.id ? '...' : 'Delete'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {(showModal || editingExpense) && (
-        <ExpenseModal
+      {/* Bottom Sheet form container */}
+      {showSheet && (
+        <ExpenseBottomSheet
           expense={editingExpense}
           members={members}
           currentUser={user}
-          onClose={() => { setShowModal(false); setEditingExpense(null); }}
+          onClose={() => { setShowSheet(false); setEditingExpense(null); }}
           onSave={handleSave}
         />
       )}

@@ -1,9 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { ThemeProvider } from './contexts/ThemeContext';
 import { HouseProvider } from './contexts/HouseContext';
-
 
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -15,16 +13,14 @@ import MembersPage from './pages/MembersPage';
 import ExpensesPage from './pages/ExpensesPage';
 import PaymentsPage from './pages/PaymentsPage';
 import SettlementsPage from './pages/SettlementsPage';
-
 import ProfilePage from './pages/ProfilePage';
 import Layout from './components/Layout';
 
 function LoadingScreen() {
   return (
     <div className="loading-screen">
-      <div style={{ fontSize: 48, marginBottom: 16 }}>🏠</div>
-      <div className="logo-text">SplitRoom</div>
-      <div style={{ marginTop: 24 }} className="loading-spinner" />
+      <div className="loading-spinner" />
+      <div style={{ marginTop: 12, fontWeight: 600 }}>Loading SplitRoom...</div>
     </div>
   );
 }
@@ -75,9 +71,10 @@ function AppRoutes() {
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
         <Route path="/settlements" element={<SettlementsPage />} />
-
         <Route path="/profile" element={<ProfilePage />} />
       </Route>
+      {/* Catch-all route */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }
@@ -85,13 +82,11 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <ThemeProvider>
-        <AuthProvider>
-          <HouseProvider>
-              <AppRoutes />
-          </HouseProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <AuthProvider>
+        <HouseProvider>
+          <AppRoutes />
+        </HouseProvider>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

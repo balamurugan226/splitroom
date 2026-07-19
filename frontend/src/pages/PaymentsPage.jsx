@@ -1,421 +1,453 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Check, X, Home, CreditCard, AlertCircle } from 'lucide-react';
-import { paymentAPI } from '../services/api';
 import { useHouse } from '../contexts/HouseContext';
 import { useAuth } from '../contexts/AuthContext';
-import { formatCurrency, formatDate, formatMonth, getCurrentMonth, getInitials } from '../utils/formatters';
-
-function RecordPaymentModal({ members, currentUser, onClose, onSave }) {
-  const [form, setForm] = useState({
-    from_user: currentUser?.id || '',
-    to_user: '',
-    amount: '',
-    type: 'settlement',
-    note: '',
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    if (!form.to_user) { setError('Select the recipient.'); return; }
-    if (!form.amount || isNaN(form.amount) || Number(form.amount) <= 0) { setError('Enter a valid amount.'); return; }
-    if (form.from_user === form.to_user) { setError('Cannot pay yourself.'); return; }
-    try {
-      setLoading(true);
-      await paymentAPI.createPayment({ ...form, amount: Number(form.amount) });
-      onSave();
-    } catch (err) {
-      setError(err?.response?.data?.message || 'Failed to record payment.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">Record Payment</h2>
-          <button className="modal-close" onClick={onClose}><X size={18} /></button>
-        </div>
-        {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>⚠️ {error}</div>}
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="label">From</label>
-            <select className="input" value={form.from_user} onChange={(e) => setForm(p => ({ ...p, from_user: e.target.value }))}>
-              {members.map((m) => (
-                <option key={m.user_id || m.id} value={m.user_id || m.id}>
-                  {m.name}{(m.user_id || m.id) === currentUser?.id ? ' (You)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="label">To</label>
-            <select className="input" value={form.to_user} onChange={(e) => setForm(p => ({ ...p, to_user: e.target.value }))} required>
-              <option value="">Select recipient...</option>
-              {members.filter(m => (m.user_id || m.id) !== form.from_user).map((m) => (
-                <option key={m.user_id || m.id} value={m.user_id || m.id}>{m.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="label">Amount (₹)</label>
-            <input className="input" type="number" placeholder="0.00" min="0" step="0.01"
-              value={form.amount} onChange={(e) => setForm(p => ({ ...p, amount: e.target.value }))} required />
-          </div>
-          <div className="form-group">
-            <label className="label">Type</label>
-            <select className="input" value={form.type} onChange={(e) => setForm(p => ({ ...p, type: e.target.value }))}>
-              <option value="settlement">Settlement</option>
-              <option value="rent">Rent Payment</option>
-              <option value="expense_share">Expense Share</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="label">Note (Optional)</label>
-            <input className="input" placeholder="Add a note..." value={form.note}
-              onChange={(e) => setForm(p => ({ ...p, note: e.target.value }))} />
-          </div>
-          <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Recording...' : 'Record Payment'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function PaymentsTab({ members, currentUser, house }) {
-  const [payments, setPayments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [showModal, setShowModal] = useState(false);
-  const [markingPaid, setMarkingPaid] = useState(null);
-
-  const fetchPayments = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await paymentAPI.getPayments({ status: filterStatus !== 'all' ? filterStatus : undefined });
-      setPayments(res.data.payments || []);
-    } catch { setPayments([]); } finally { setLoading(false); }
-  }, [filterStatus]);
-
-  useEffect(() => { fetchPayments(); }, [fetchPayments]);
-
-  const handleMarkPaid = async (id) => {
-    try {
-      setMarkingPaid(id);
-      await paymentAPI.markPaid(id);
-      setPayments(prev => prev.map(p => p.id === id ? { ...p, status: 'paid' } : p));
-    } catch { alert('Failed to mark as paid.'); } finally { setMarkingPaid(null); }
-  };
-
-  const statusBadge = (status) => {
-    if (status === 'paid') return <span className="badge badge-green">✓ Paid</span>;
-    if (status === 'overdue') return <span className="badge badge-red">⚠ Overdue</span>;
-    return <span className="badge badge-orange">⏳ Pending</span>;
-  };
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {['all', 'pending', 'paid', 'overdue'].map((s) => (
-            <button key={s} className={`chip ${filterStatus === s ? 'active' : ''}`} onClick={() => setFilterStatus(s)}>
-              {s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-        </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>
-          <Plus size={15} /> Record Payment
-        </button>
-      </div>
-
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="loading-spinner" /></div>
-      ) : payments.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">💳</div>
-          <div className="empty-state-title">No payments found</div>
-          <div className="empty-state-desc">Payments between members will appear here.</div>
-        </div>
-      ) : (
-        <div className="table-wrapper">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>From</th>
-                <th>To</th>
-                <th>Amount</th>
-                <th>Type</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div className="avatar avatar-sm">{getInitials(p.from_name)}</div>
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>
-                        {p.from_user === currentUser?.id ? 'You' : p.from_name}
-                      </span>
-                    </div>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div className="avatar avatar-sm">{getInitials(p.to_name)}</div>
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>
-                        {p.to_user === currentUser?.id ? 'You' : p.to_name}
-                      </span>
-                    </div>
-                  </td>
-                  <td><span style={{ fontWeight: 700, fontSize: 15 }}>{formatCurrency(p.amount)}</span></td>
-                  <td><span className="badge badge-blue" style={{ fontSize: 11 }}>{p.type || 'Payment'}</span></td>
-                  <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{formatDate(p.created_at)}</td>
-                  <td>{statusBadge(p.status)}</td>
-                  <td>
-                    {p.status !== 'paid' && (p.to_user === currentUser?.id || house?.user_role === 'owner') && (
-                      <button
-                        className="btn btn-success btn-sm"
-                        onClick={() => handleMarkPaid(p.id)}
-                        disabled={markingPaid === p.id}
-                      >
-                        <Check size={13} />
-                        {markingPaid === p.id ? '...' : 'Mark Paid'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {showModal && (
-        <RecordPaymentModal
-          members={members}
-          currentUser={currentUser}
-          onClose={() => setShowModal(false)}
-          onSave={() => { setShowModal(false); fetchPayments(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-function RentTab({ house, currentUser, members }) {
-  const [rentRecords, setRentRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [genLoading, setGenLoading] = useState(false);
-  const [updatingStatus, setUpdatingStatus] = useState(null);
-  const [filterMonth, setFilterMonth] = useState(getCurrentMonth());
-
-  const fetchRent = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await paymentAPI.getRentRecords({ month: filterMonth });
-      setRentRecords(res.data.records || []);
-    } catch { setRentRecords([]); } finally { setLoading(false); }
-  }, [filterMonth]);
-
-  useEffect(() => { fetchRent(); }, [fetchRent]);
-
-  const generateRentRecords = async () => {
-    if (!window.confirm(`Generate rent records for ${formatMonth(getCurrentMonth())}?`)) return;
-    try {
-      setGenLoading(true);
-      await paymentAPI.createRentRecord({ month: getCurrentMonth(), amount: house?.monthly_rent });
-      fetchRent();
-    } catch (err) { alert(err?.response?.data?.message || 'Failed to generate rent records.'); }
-    finally { setGenLoading(false); }
-  };
-
-  const updateStatus = async (id, status) => {
-    try {
-      setUpdatingStatus(id);
-      await paymentAPI.updateRentStatus(id, status);
-      setRentRecords(prev => prev.map(r => r.id === id ? { ...r, status } : r));
-    } catch { alert('Failed to update status.'); } finally { setUpdatingStatus(null); }
-  };
-
-  const thisMonthRecord = rentRecords.find(r => r.month === getCurrentMonth() && r.user_id === currentUser?.id);
-
-  return (
-    <div>
-      {/* Current month card */}
-      {house && (
-        <div
-          style={{
-            background: 'var(--accent-blue)',
-            borderRadius: 'var(--radius-lg)',
-            padding: 28,
-            marginBottom: 24,
-            color: 'white',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 16,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', fontWeight: 600, marginBottom: 6 }}>
-              {formatMonth(getCurrentMonth())} Rent
-            </div>
-            <div style={{ fontSize: 36, fontWeight: 900 }}>
-              {formatCurrency(house.monthly_rent || 0)}
-            </div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 4 }}>
-              Due on 5th · {members.length > 0 ? formatCurrency((house.monthly_rent || 0) / members.length) : '-'} per person
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end' }}>
-            {thisMonthRecord ? (
-              <span className={`badge ${thisMonthRecord.status === 'paid' ? 'badge-green' : 'badge-orange'}`}>
-                {thisMonthRecord.status === 'paid' ? '✓ Paid' : '⏳ Pending'}
-              </span>
-            ) : (
-              <span className="badge badge-orange">⏳ Pending</span>
-            )}
-            {(house.user_role === 'owner' || house.user_role === 'admin') && (
-              <button
-                className="btn"
-                style={{ background: 'rgba(255,255,255,0.9)', color: '#1e40af', fontWeight: 700 }}
-                onClick={generateRentRecords}
-                disabled={genLoading}
-              >
-                {genLoading ? 'Generating...' : '📋 Generate Records'}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Filter */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h3 style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)' }}>Rent History</h3>
-        <input className="input" type="month" style={{ width: 'auto' }} value={filterMonth}
-          onChange={(e) => setFilterMonth(e.target.value)} />
-      </div>
-
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="loading-spinner" /></div>
-      ) : rentRecords.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">🏠</div>
-          <div className="empty-state-title">No rent records</div>
-          <div className="empty-state-desc">Generate rent records for the current month to get started.</div>
-        </div>
-      ) : (
-        <div className="table-wrapper">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Member</th>
-                <th>Month</th>
-                <th>Amount</th>
-                <th>Due Date</th>
-                <th>Paid Date</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rentRecords.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div className="avatar avatar-sm">{getInitials(r.user_name)}</div>
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>
-                        {r.user_id === currentUser?.id ? 'You' : r.user_name}
-                      </span>
-                    </div>
-                  </td>
-                  <td style={{ fontWeight: 600 }}>{formatMonth(r.month)}</td>
-                  <td><span style={{ fontWeight: 700 }}>{formatCurrency(r.amount)}</span></td>
-                  <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{formatDate(r.due_date)}</td>
-                  <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                    {r.paid_date ? formatDate(r.paid_date) : '-'}
-                  </td>
-                  <td>
-                    {r.status === 'paid' ? (
-                      <span className="badge badge-green">✓ Paid</span>
-                    ) : r.status === 'overdue' ? (
-                      <span className="badge badge-red"><AlertCircle size={10} /> Overdue</span>
-                    ) : (
-                      <span className="badge badge-orange">⏳ Pending</span>
-                    )}
-                  </td>
-                  <td>
-                    {r.status !== 'paid' && (r.user_id === currentUser?.id || house?.user_role === 'owner') && (
-                      <button
-                        className="btn btn-success btn-sm"
-                        onClick={() => updateStatus(r.id, 'paid')}
-                        disabled={updatingStatus === r.id}
-                      >
-                        <Check size={13} />
-                        {updatingStatus === r.id ? '...' : 'Mark Paid'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
+import { paymentAPI } from '../services/api';
+import { formatCurrency, formatMonth, formatDate } from '../utils/formatters';
 
 export default function PaymentsPage() {
   const { house, members } = useHouse();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('payments');
+  
+  const [activeTab, setActiveTab] = useState('rent'); // 'rent' or 'payments'
+  const [rentRecords, setRentRecords] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  // Form states for creating rent record
+  const [showRentForm, setShowRentForm] = useState(false);
+  const [rentAmount, setRentAmount] = useState('');
+  const [rentMonth, setRentMonth] = useState('');
+  const [rentDueDate, setRentDueDate] = useState('');
+  const [creatingRent, setCreatingRent] = useState(false);
+
+  // Form states for recording payment
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentRecipient, setPaymentRecipient] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const [creatingPayment, setCreatingPayment] = useState(false);
+
+  const isOwnerOrAdmin = house?.user_role === 'owner' || house?.user_role === 'admin';
+
+  const fetchData = useCallback(async () => {
+    if (!house) return;
+    try {
+      setLoading(true);
+      setError('');
+      if (activeTab === 'rent') {
+        const rentRes = await paymentAPI.getRentRecords();
+        setRentRecords(rentRes.data.rent_records || rentRes.data || []);
+      } else {
+        const payRes = await paymentAPI.getPayments();
+        setPayments(payRes.data.payments || payRes.data || []);
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Failed to fetch data.');
+    } finally {
+      setLoading(false);
+    }
+  }, [house, activeTab]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleCreateRent = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    const amt = Number(rentAmount);
+    if (isNaN(amt) || amt <= 0) {
+      setError('Please enter a valid rent amount.');
+      return;
+    }
+    if (!rentMonth) {
+      setError('Please select the billing month.');
+      return;
+    }
+    if (!rentDueDate) {
+      setError('Please select a due date.');
+      return;
+    }
+
+    try {
+      setCreatingRent(true);
+      await paymentAPI.createRentRecord({
+        amount: amt,
+        month: rentMonth,
+        due_date: rentDueDate
+      });
+      setSuccess('Rent billing record created successfully!');
+      setRentAmount('');
+      setRentMonth('');
+      setRentDueDate('');
+      setShowRentForm(false);
+      fetchData();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to create rent record.');
+    } finally {
+      setCreatingRent(false);
+    }
+  };
+
+  const handleCreatePayment = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    const amt = Number(paymentAmount);
+    if (isNaN(amt) || amt <= 0) {
+      setError('Please enter a valid payment amount.');
+      return;
+    }
+    if (!paymentRecipient) {
+      setError('Please select a recipient roommate.');
+      return;
+    }
+
+    try {
+      setCreatingPayment(true);
+      await paymentAPI.createPayment({
+        amount: amt,
+        to_user_id: paymentRecipient,
+        notes: paymentNotes
+      });
+      setSuccess('Payment recorded successfully!');
+      setPaymentAmount('');
+      setPaymentRecipient('');
+      setPaymentNotes('');
+      setShowPaymentForm(false);
+      fetchData();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to record payment.');
+    } finally {
+      setCreatingPayment(false);
+    }
+  };
+
+  const handleMarkRentPaid = async (id) => {
+    if (!window.confirm('Mark this rent record as paid?')) return;
+    try {
+      setError('');
+      await paymentAPI.updateRentStatus(id, 'paid');
+      setSuccess('Rent marked as paid!');
+      fetchData();
+    } catch (err) {
+      setError('Failed to update rent status.');
+    }
+  };
+
+  const handleMarkPaymentReceived = async (id) => {
+    if (!window.confirm('Confirm that you have received this payment?')) return;
+    try {
+      setError('');
+      await paymentAPI.markPaid(id);
+      setSuccess('Payment confirmed!');
+      fetchData();
+    } catch (err) {
+      setError('Failed to confirm payment.');
+    }
+  };
 
   if (!house) {
     return (
-      <div className="empty-state">
-        <div className="empty-state-icon">🏠</div>
-        <div className="empty-state-title">No House Found</div>
-        <div className="empty-state-desc">Join or create a house first.</div>
-        <a href="/house" className="btn btn-primary" style={{ marginTop: 20 }}>Go to House</a>
+      <div className="container" style={{ paddingTop: '40px' }}>
+        <div className="card text-center" style={{ padding: '32px 16px' }}>
+          <span style={{ fontSize: '48px' }}>🏠</span>
+          <h2 style={{ fontSize: '20px', fontWeight: 700, marginTop: '16px', marginBottom: '8px' }}>
+            No House Associated
+          </h2>
+          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
+            Join or create a house first to manage rent and recorded payments.
+          </p>
+          <a href="/house" className="btn btn-primary">Go to House Setup</a>
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="page-header">
+    <div className="container">
+      {/* Tabs */}
+      <div className="tabs" style={{ marginBottom: '16px' }}>
+        <button
+          className={`tab ${activeTab === 'rent' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('rent'); setError(''); setSuccess(''); }}
+        >
+          Rent Billing
+        </button>
+        <button
+          className={`tab ${activeTab === 'payments' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('payments'); setError(''); setSuccess(''); }}
+        >
+          Roommate Transfers
+        </button>
+      </div>
+
+      {error && <div className="alert alert-error">{error}</div>}
+      {success && <div className="alert alert-success">{success}</div>}
+
+      {activeTab === 'rent' ? (
         <div>
-          <h1 className="page-title">Payments</h1>
-          <p className="page-subtitle">Track rent and expense payments</p>
+          {/* Rent Section */}
+          <div className="card" style={{ padding: '16px' }}>
+            <div className="flex justify-between items-center" style={{ marginBottom: '12px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Monthly Rent Records</h3>
+              {isOwnerOrAdmin && !showRentForm && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setShowRentForm(true)}
+                >
+                  ➕ Set Rent Invoice
+                </button>
+              )}
+            </div>
+
+            {showRentForm && (
+              <form onSubmit={handleCreateRent} style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: 'var(--radius)', marginBottom: '16px' }}>
+                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px' }}>New Rent Invoice</h4>
+                
+                <div className="form-group">
+                  <label className="label">Monthly Amount *</label>
+                  <input
+                    className="input"
+                    type="number"
+                    placeholder="E.g. 15000"
+                    value={rentAmount}
+                    onChange={(e) => setRentAmount(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="label">Rent Month *</label>
+                    <input
+                      className="input"
+                      type="month"
+                      value={rentMonth}
+                      onChange={(e) => setRentMonth(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="label">Due Date *</label>
+                    <input
+                      className="input"
+                      type="date"
+                      value={rentDueDate}
+                      onChange={(e) => setRentDueDate(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: '12px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ flex: 1 }}
+                    onClick={() => setShowRentForm(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-sm"
+                    style={{ flex: 1 }}
+                    disabled={creatingRent}
+                  >
+                    {creatingRent ? 'Posting...' : 'Create Invoice'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {loading ? (
+              <div className="text-center" style={{ padding: '24px 0' }}>
+                <div className="loading-spinner" style={{ margin: '0 auto' }} />
+              </div>
+            ) : rentRecords.length === 0 ? (
+              <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '20px 0' }}>
+                No rent records have been posted yet.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {rentRecords.map((record) => (
+                  <div key={record.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: 700 }}>
+                          Rent - {formatMonth(record.month)}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          Due by {formatDate(record.due_date)}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '15px', fontWeight: 800 }}>
+                          {formatCurrency(record.amount)}
+                        </div>
+                        <span className={`badge ${record.status === 'paid' ? 'badge-green' : 'badge-orange'}`} style={{ marginTop: '4px' }}>
+                          {record.status}
+                        </span>
+                      </div>
+                    </div>
+
+                    {record.status !== 'paid' && (
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ marginTop: '8px', width: '100%' }}
+                        onClick={() => handleMarkRentPaid(record.id)}
+                      >
+                        Mark Rent as Paid
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-
-      <div className="tabs" style={{ marginBottom: 28 }}>
-        <button className={`tab ${activeTab === 'payments' ? 'active' : ''}`} onClick={() => setActiveTab('payments')}>
-          <CreditCard size={15} /> Payments
-        </button>
-        <button className={`tab ${activeTab === 'rent' ? 'active' : ''}`} onClick={() => setActiveTab('rent')}>
-          <Home size={15} /> Rent
-        </button>
-      </div>
-
-      {activeTab === 'payments' ? (
-        <PaymentsTab members={members} currentUser={user} house={house} />
       ) : (
-        <RentTab house={house} currentUser={user} members={members} />
+        <div>
+          {/* Roommate Transfers Section */}
+          <div className="card" style={{ padding: '16px' }}>
+            <div className="flex justify-between items-center" style={{ marginBottom: '12px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Recorded Transfers</h3>
+              {!showPaymentForm && (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setShowPaymentForm(true)}
+                >
+                  💸 Record Transfer
+                </button>
+              )}
+            </div>
+
+            {showPaymentForm && (
+              <form onSubmit={handleCreatePayment} style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: 'var(--radius)', marginBottom: '16px' }}>
+                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px' }}>Record New Payment</h4>
+                
+                <div className="form-group">
+                  <label className="label">Amount Paid *</label>
+                  <input
+                    className="input"
+                    type="number"
+                    placeholder="E.g. 2500"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="label">Paid To (Roommate) *</label>
+                  <select
+                    className="select"
+                    value={paymentRecipient}
+                    onChange={(e) => setPaymentRecipient(e.target.value)}
+                    required
+                  >
+                    <option value="">Select Roommate</option>
+                    {members
+                      .filter((m) => (m.user_id || m.id) !== user?.id)
+                      .map((m) => (
+                        <option key={m.user_id || m.id} value={m.user_id || m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="label">Notes</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="E.g. Paid via GPay, settled electricity"
+                    value={paymentNotes}
+                    onChange={(e) => setPaymentNotes(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: '12px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ flex: 1 }}
+                    onClick={() => setShowPaymentForm(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-sm"
+                    style={{ flex: 1 }}
+                    disabled={creatingPayment}
+                  >
+                    {creatingPayment ? 'Recording...' : 'Record Payment'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {loading ? (
+              <div className="text-center" style={{ padding: '24px 0' }}>
+                <div className="loading-spinner" style={{ margin: '0 auto' }} />
+              </div>
+            ) : payments.length === 0 ? (
+              <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '20px 0' }}>
+                No transfers recorded yet.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {payments.map((p) => {
+                  const isRecipient = p.to_user_id === user?.id;
+                  const isSender = p.from_user_id === user?.id;
+
+                  return (
+                    <div key={p.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 700 }}>
+                            {isSender ? `Paid to ${p.to_name || 'Roommate'}` : `Received from ${p.from_name || 'Roommate'}`}
+                          </div>
+                          {p.notes && <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{p.notes}</div>}
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {formatDate(p.created_at)}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '15px', fontWeight: 800 }}>
+                            {formatCurrency(p.amount)}
+                          </div>
+                          <span className={`badge ${p.status === 'paid' ? 'badge-green' : 'badge-orange'}`} style={{ marginTop: '4px' }}>
+                            {p.status === 'paid' ? 'confirmed' : 'pending'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {isRecipient && p.status !== 'paid' && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ marginTop: '8px', width: '100%' }}
+                          onClick={() => handleMarkPaymentReceived(p.id)}
+                        >
+                          Confirm Receipt of Funds
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
