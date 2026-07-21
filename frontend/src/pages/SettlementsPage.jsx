@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useHouse } from '../contexts/HouseContext';
 import { useAuth } from '../contexts/AuthContext';
 import { paymentAPI } from '../services/api';
+import { sendPushNotification } from '../utils/notifications';
 import { formatCurrency, formatDate } from '../utils/formatters';
 
 export default function SettlementsPage() {
@@ -63,10 +64,11 @@ export default function SettlementsPage() {
     try {
       setSubmitting(true);
       await paymentAPI.createSettlement({
-        to_user: payeeId, // backend expects to_user
+        to_user: payeeId,
         amount: amt
       });
       setSuccess('Settlement transfer recorded successfully!');
+      sendPushNotification('Settlement Completed 🤝', `Settlement of ${formatCurrency(amt)} was logged.`);
       setAmount('');
       setPayeeId('');
       setShowForm(false);

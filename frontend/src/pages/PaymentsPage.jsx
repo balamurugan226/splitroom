@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useHouse } from '../contexts/HouseContext';
 import { useAuth } from '../contexts/AuthContext';
 import { paymentAPI } from '../services/api';
+import { sendPushNotification } from '../utils/notifications';
 import { formatCurrency, formatMonth, formatDate } from '../utils/formatters';
 
 export default function PaymentsPage() {
@@ -83,6 +84,7 @@ export default function PaymentsPage() {
         due_date: rentDueDate
       });
       setSuccess('Rent billing record created successfully!');
+      sendPushNotification('Rent Invoice Created 🏢', `Rent of ${formatCurrency(amt)} posted for ${formatMonth(rentMonth)}.`);
       setRentAmount('');
       setRentMonth('');
       setRentDueDate('');
@@ -114,10 +116,11 @@ export default function PaymentsPage() {
       setCreatingPayment(true);
       await paymentAPI.createPayment({
         amount: amt,
-        to_user: paymentRecipient, // backend expects to_user
-        note: paymentNotes          // backend expects note
+        to_user: paymentRecipient,
+        note: paymentNotes
       });
       setSuccess('Payment recorded successfully!');
+      sendPushNotification('Payment Recorded 💸', `Recorded payment of ${formatCurrency(amt)}.`);
       setPaymentAmount('');
       setPaymentRecipient('');
       setPaymentNotes('');
@@ -136,6 +139,7 @@ export default function PaymentsPage() {
       setError('');
       await paymentAPI.updateRentStatus(id, 'paid');
       setSuccess('Rent marked as paid!');
+      sendPushNotification('Rent Paid 🏠', 'Rent status updated to Paid.');
       fetchData();
     } catch (err) {
       setError('Failed to update rent status.');
@@ -148,6 +152,7 @@ export default function PaymentsPage() {
       setError('');
       await paymentAPI.markPaid(id);
       setSuccess('Payment confirmed!');
+      sendPushNotification('Payment Confirmed ✅', 'Transfer payment has been confirmed as received.');
       fetchData();
     } catch (err) {
       setError('Failed to confirm payment.');

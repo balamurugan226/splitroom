@@ -1,11 +1,28 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, CreditCard, ArrowLeftRight, Home } from 'lucide-react';
+import { LayoutDashboard, Receipt, CreditCard, ArrowLeftRight, Home, Sun, Moon, Bell, BellOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { requestNotificationPermission } from '../utils/notifications';
 
 export default function Layout() {
   const { user } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [notifPermission, setNotifPermission] = useState('default');
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotifPermission(Notification.permission);
+    } else {
+      setNotifPermission('unsupported');
+    }
+  }, []);
+
+  const handleRequestPermission = async () => {
+    const status = await requestNotificationPermission();
+    setNotifPermission(status);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -18,7 +35,46 @@ export default function Layout() {
           <span style={{ fontSize: 20 }}>🏠</span>
           <span className="topbar-title">SplitRoom</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {/* Native OS Notification Enable Toggle */}
+          {notifPermission !== 'unsupported' && (
+            <button
+              onClick={handleRequestPermission}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                color: notifPermission === 'granted' ? 'var(--accent-green)' : 'var(--text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              title={notifPermission === 'granted' ? 'Notifications Enabled' : 'Enable System Notifications'}
+            >
+              {notifPermission === 'granted' ? <Bell size={18} /> : <BellOff size={18} />}
+            </button>
+          )}
+
+          {/* Theme Switcher Toggle */}
+          <button
+            onClick={toggleTheme}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            title="Toggle Light/Dark Theme"
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+
+          {/* Profile link */}
           <NavLink to="/profile" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
             <div className="avatar avatar-sm">
               {user?.name ? user.name.substring(0, 2).toUpperCase() : 'SR'}

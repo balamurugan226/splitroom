@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useHouse } from '../contexts/HouseContext';
 import { useAuth } from '../contexts/AuthContext';
 import { expenseAPI } from '../services/api';
+import { sendPushNotification } from '../utils/notifications';
 import {
   formatCurrency,
   formatDate,
@@ -34,6 +35,7 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
   }, [expense, members]);
   
   const [splitWith, setSplitWith] = useState(initialSplitWith);
+  const [receiptImage, setReceiptImage] = useState(expense?.receipt_image || '');
   const [notes, setNotes] = useState(expense?.notes || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -42,6 +44,22 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
     setSplitWith((prev) =>
       prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
     );
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    setError('');
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        setError('Image file must be smaller than 2MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setReceiptImage(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -70,6 +88,7 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
       paid_by: paidBy,
       split_type: splitType,
       member_ids: splitWith,
+      receipt_image: receiptImage,
       notes,
     };
 
@@ -77,8 +96,10 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
       setLoading(true);
       if (isEdit) {
         await expenseAPI.updateExpense(expense._id, payload);
+        sendPushNotification('Expense Updated ✏️', `${description} updated to ${formatCurrency(numAmount)}.`);
       } else {
         await expenseAPI.addExpense(payload);
+        sendPushNotification('Expense Added 💸', `${description} of ${formatCurrency(numAmount)} logged successfully.`);
       }
       onSave();
     } catch (err) {
@@ -178,6 +199,49 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
             </div>
           </div>
 
+          {/* Receipt Attachment Input */}
+          <div className="form-group">
+            <label className="label">Receipt Attachment (Max 2MB)</label>
+            <input
+              type="file"
+              accept="image/*"
+              className="input"
+              onChange={handleFileChange}
+              style={{ padding: '8px' }}
+            />
+            {receiptImage && (
+              <div style={{ marginTop: '10px', position: 'relative', width: 'fit-content' }}>
+                <img
+                  src={receiptImage}
+                  alt="Receipt Preview"
+                  style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setReceiptImage('')}
+                  style={{
+                    position: 'absolute',
+                    top: '-6px',
+                    right: '-6px',
+                    background: 'var(--accent-red)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '20px',
+                    height: '20px',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="form-group">
             <label className="label">Roommates Splitting With</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: '4px' }}>
@@ -258,6 +322,7 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [showSheet, setShowSheet] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
+  const [previewImage, setPreviewImage] = useState('');
   
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
@@ -302,6 +367,7 @@ export default function ExpensesPage() {
     try {
       setDeleteLoading(id);
       await expenseAPI.deleteExpense(id);
+      sendPushNotification('Expense Deleted 🗑️', 'An expense record has been removed.');
       setExpenses((prev) => prev.filter((e) => e._id !== id));
     } catch (err) {
       alert('Failed to delete expense.');
@@ -433,7 +499,24 @@ export default function ExpensesPage() {
                   <div className="flex items-center gap-3">
                     <span style={{ fontSize: '24px' }}>{cat.icon}</span>
                     <div>
-                      <div style={{ fontSize: '14px', fontWeight: 600 }}>{exp.description}</div>
+                      <div style={{ fontSize: '14px', fontWeight: 600 }}>
+                        {exp.description}
+                        {exp.receipt_image && (
+                          <button
+                            onClick={() => setPreviewImage(exp.receipt_image)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              marginLeft: '8px',
+                              fontSize: '13px'
+                            }}
+                            title="View Receipt"
+                          >
+                            📎
+                          </button>
+                        )}
+                      </div>
                       <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                         Paid by {isPayerCurrentUser ? 'You' : (exp.paidBy?.name || 'Roommate')} · {formatDate(exp.date)}
                       </div>
@@ -485,6 +568,36 @@ export default function ExpensesPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div
+          className="bottom-sheet-overlay"
+          onClick={() => setPreviewImage('')}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div
+            className="bottom-sheet"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '90%', maxWidth: '400px', borderRadius: 'var(--radius)' }}
+          >
+            <div className="bottom-sheet-header">
+              <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Receipt Attachment</h3>
+              <button
+                onClick={() => setPreviewImage('')}
+                style={{ border: 'none', background: 'transparent', fontSize: '20px', cursor: 'pointer', color: 'var(--text-secondary)' }}
+              >
+                ✕
+              </button>
+            </div>
+            <img
+              src={previewImage}
+              alt="Receipt Attachment"
+              style={{ width: '100%', maxHeight: '60vh', objectFit: 'contain', borderRadius: 'var(--radius)' }}
+            />
+          </div>
         </div>
       )}
 
