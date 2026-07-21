@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { HouseProvider } from './contexts/HouseContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -84,11 +85,13 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <HouseProvider>
-          <AppRoutes />
-        </HouseProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <HouseProvider>
+            <AppRoutes />
+          </HouseProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }
