@@ -46,6 +46,25 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
     );
   };
 
+  const handleSplitEveryone = () => {
+    setSplitWith(members.map(m => m._id));
+  };
+
+  const handleSplit5050 = () => {
+    const payerId = paidBy;
+    const myId = currentUserId;
+    if (payerId === myId) {
+      const other = members.find(m => m._id !== myId);
+      if (other) {
+        setSplitWith([myId, other._id]);
+      } else {
+        setSplitWith([myId]);
+      }
+    } else {
+      setSplitWith([myId, payerId]);
+    }
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     setError('');
@@ -244,6 +263,27 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
 
           <div className="form-group">
             <label className="label">Roommates Splitting With</label>
+            
+            {/* Split Presets Row */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ flex: 1, padding: '8px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                onClick={handleSplitEveryone}
+              >
+                👥 Split with Everyone
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ flex: 1, padding: '8px', fontSize: '11px', whiteSpace: 'nowrap' }}
+                onClick={handleSplit5050}
+              >
+                ⚖️ Split 50-50
+              </button>
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: '4px' }}>
               {members.map((m) => {
                 const memberId = m._id;
