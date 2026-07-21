@@ -330,12 +330,31 @@ async function getExpenseSummary(req, res) {
       }
     });
 
+    const recentExpensesRaw = await Expense.find({ houseId })
+      .populate('paidBy', 'name')
+      .sort({ date: -1, createdAt: -1 })
+      .limit(5);
+
+    const recentExpenses = recentExpensesRaw.map(exp => {
+      const myShareObj = exp.splitAmong.find(s => s.user.toString() === userId);
+      return {
+        id: exp._id.toString(),
+        description: exp.description,
+        category: exp.category,
+        amount: exp.amount,
+        my_share: myShareObj ? myShareObj.amount : 0,
+        paid_by_name: exp.paidBy ? exp.paidBy.name : 'Roommate',
+        created_at: exp.date || exp.createdAt,
+      };
+    });
+
     return res.status(200).json({
       success: true,
       summary: {
         total_this_month: totalThisMonth,
         your_share_this_month: userShareThisMonth,
         you_paid_this_month: userPaidThisMonth,
+        recent_expenses: recentExpenses,
       },
     });
   } catch (err) {

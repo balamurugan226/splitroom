@@ -18,10 +18,10 @@ async function uniqueInviteCode() {
   do {
     code = generateInviteCode(8);
     const existing = await House.findOne({ invite_code: code });
-    if (!existing) break;
+    if (!existing) return code;
     tries++;
   } while (tries < 10);
-  return code;
+  throw new Error('Failed to generate a unique invite code after 10 attempts.');
 }
 
 /**
@@ -52,7 +52,7 @@ async function createHouse(req, res) {
     });
 
     await house.save();
-    const populatedHouse = await House.findById(house._id).populate('members', 'name email avatar');
+    const populatedHouse = await House.findById(house._id).populate('members', 'name email avatar phone');
 
     return res.status(201).json({
       success: true,
@@ -129,8 +129,7 @@ async function updateHouse(req, res) {
     if (!house) {
       return res.status(404).json({ success: false, message: 'House not found or you are not a member.' });
     }
-    
-    // Check if owner
+
     if (house.createdBy.toString() !== userId) {
       return res.status(403).json({ success: false, message: 'Only owner can update the house.' });
     }
@@ -170,7 +169,8 @@ async function joinHouse(req, res) {
       return res.status(404).json({ success: false, message: 'Invalid invite code. House not found.' });
     }
 
-    if (house.members.includes(userId)) {
+    // Fix: use .some() with .toString() for proper ObjectId comparison
+    if (house.members.some(m => m.toString() === userId)) {
       return res.status(409).json({ success: false, message: 'You are already a member of this house.' });
     }
 
@@ -203,7 +203,8 @@ async function leaveHouse(req, res) {
       return res.status(404).json({ success: false, message: 'House not found.' });
     }
 
-    if (!house.members.includes(userId)) {
+    // Fix: use .some() with .toString() for proper ObjectId comparison
+    if (!house.members.some(m => m.toString() === userId)) {
       return res.status(404).json({ success: false, message: 'You are not a member of this house.' });
     }
 
@@ -274,7 +275,8 @@ async function removeMember(req, res) {
       return res.status(403).json({ success: false, message: 'Only owner can remove members.' });
     }
 
-    if (!house.members.includes(targetUserId)) {
+    // Fix: use .some() with .toString() for proper ObjectId comparison
+    if (!house.members.some(m => m.toString() === targetUserId)) {
       return res.status(404).json({ success: false, message: 'Member not found in this house.' });
     }
 

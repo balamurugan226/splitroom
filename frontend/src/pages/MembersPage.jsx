@@ -20,7 +20,7 @@ export default function MembersPage() {
       setLoading(true);
       setError('');
       setSuccess('');
-      await houseAPI.updateMemberRole(house.id, memberId, newRole);
+      await houseAPI.updateMemberRole(house._id, memberId, newRole);
       setSuccess('Roommate role updated successfully!');
       await refreshHouse();
     } catch (err) {
@@ -40,7 +40,7 @@ export default function MembersPage() {
       setLoading(true);
       setError('');
       setSuccess('');
-      await houseAPI.removeMember(house.id, memberId);
+      await houseAPI.removeMember(house._id, memberId);
       setSuccess(`${memberName} removed from house.`);
       await refreshHouse();
     } catch (err) {
@@ -79,8 +79,8 @@ export default function MembersPage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {members.map((member) => {
-          const memberId = member.user_id || member.id;
-          const isSelf = memberId === user?.id;
+          const memberId = member._id;
+          const isSelf = memberId === (user?.id || user?._id);
           const isOwner = member.role === 'owner';
           const canManage = isOwnerOrAdmin && !isSelf && !isOwner;
 

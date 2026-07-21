@@ -40,21 +40,22 @@ function errorHandler(err, req, res, next) {
     });
   }
 
-  // SQLite unique constraint error
-  if (err.code === 'SQLITE_CONSTRAINT_UNIQUE' || (err.message && err.message.includes('UNIQUE constraint failed'))) {
+  // MongoDB duplicate key error (e.g. unique email)
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || {})[0] || 'field';
     return res.status(409).json({
       success: false,
-      message: 'A record with that value already exists.',
-      error: err.message,
+      message: `A record with that ${field} already exists.`,
+      error: null,
     });
   }
 
-  // SQLite foreign key constraint error
-  if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY' || (err.message && err.message.includes('FOREIGN KEY constraint failed'))) {
+  // Mongoose CastError (e.g. invalid ObjectId)
+  if (err.name === 'CastError') {
     return res.status(400).json({
       success: false,
-      message: 'Referenced record does not exist.',
-      error: err.message,
+      message: `Invalid ${err.path}: ${err.value}`,
+      error: null,
     });
   }
 

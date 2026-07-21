@@ -14,7 +14,7 @@ const getBaseURL = () => {
 
 const api = axios.create({
   baseURL: getBaseURL(),
-  timeout: 10000,
+  timeout: 30000, // 30s to handle Render cold starts
   headers: {
     'Content-Type': 'application/json',
   },
@@ -38,7 +38,10 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('splitroom_token');
-      window.location.href = '/login';
+      // Only redirect if not already on login/register pages
+      if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
@@ -94,4 +97,3 @@ export const paymentAPI = {
   getSettlements: () => api.get('/payments/settlements'),
   createSettlement: (data) => api.post('/payments/settlements', data),
 };
-

@@ -118,8 +118,12 @@ async function getBalances(req, res) {
     const house = await House.findById(houseId).populate('members', 'name avatar');
     const expenses = await Expense.find({ houseId });
     const payments = await Payment.find({ houseId, status: 'pending' });
+    const settlements = await Settlement.find({ houseId });
 
     const balances = [];
+    let myBalance = 0;
+    let owedToMe = 0;
+    let iOwe = 0;
 
     for (const member of house.members) {
       if (member._id.toString() === userId) continue;
@@ -152,19 +156,46 @@ async function getBalances(req, res) {
         }
       });
 
-      const net = (theyOweMe - iOweThem + pendingTheySentMe - pendingIpaidThem).toFixed(2);
+      // Settlements
+      let settledIpaidThem = 0;
+      let settledTheyPaidMe = 0;
+      settlements.forEach(s => {
+        if (s.paidBy.toString() === userId && s.paidTo.toString() === member._id.toString()) {
+          settledIpaidThem += s.amount;
+        }
+        if (s.paidBy.toString() === member._id.toString() && s.paidTo.toString() === userId) {
+          settledTheyPaidMe += s.amount;
+        }
+      });
+
+      // Formula: base expenses difference, plus payments/settlements I made to them (offsetting what I owe or adding to what they owe), minus payments/settlements they made to me (offsetting what they owe or adding to what I owe)
+      const net = (theyOweMe - iOweThem + pendingIpaidThem - pendingTheySentMe + settledIpaidThem - settledTheyPaidMe).toFixed(2);
+      const netVal = parseFloat(net);
+
+      myBalance += netVal;
+      if (netVal > 0) {
+        owedToMe += netVal;
+      } else if (netVal < 0) {
+        iOwe += Math.abs(netVal);
+      }
 
       balances.push({
         user_id: member._id,
         name: member.name,
         avatar: member.avatar,
-        balance: parseFloat(net),
+        balance: netVal,
         they_owe_me: theyOweMe,
         i_owe_them: iOweThem,
       });
     }
 
-    return res.status(200).json({ success: true, balances });
+    return res.status(200).json({
+      success: true,
+      my_balance: parseFloat(myBalance.toFixed(2)),
+      owed_to_me: parseFloat(owedToMe.toFixed(2)),
+      i_owe: parseFloat(iOwe.toFixed(2)),
+      balances
+    });
   } catch (err) {
     console.error('[getBalances]', err);
     return res.status(500).json({ success: false, message: 'Server error.', error: err.message });

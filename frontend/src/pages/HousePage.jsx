@@ -84,7 +84,7 @@ export default function HousePage() {
     try {
       setError('');
       setSuccess('');
-      await houseAPI.regenerateInvite(house.id);
+      await houseAPI.regenerateInvite(house._id);
       setSuccess('Invite code regenerated!');
       await refreshHouse();
     } catch (err) {
@@ -102,7 +102,7 @@ export default function HousePage() {
     try {
       setError('');
       setSuccess('');
-      await houseAPI.leaveHouse(house.id);
+      await houseAPI.leaveHouse(house._id);
       setSuccess('Left house successfully.');
       await refreshHouse();
       navigate('/dashboard');
@@ -131,7 +131,7 @@ export default function HousePage() {
 
     try {
       setLoading(true);
-      await houseAPI.updateHouse(house.id, {
+      await houseAPI.updateHouse(house._id, {
         name: editName.trim(),
         monthly_rent: rentVal,
         rent_due_day: Number(editDueDay)

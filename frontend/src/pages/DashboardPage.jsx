@@ -26,7 +26,7 @@ export default function DashboardPage() {
         paymentAPI.getBalances(),
         paymentAPI.getRentRecords({ limit: 1 })
       ]);
-      setSummary(summaryRes.data);
+      setSummary(summaryRes.data.summary || summaryRes.data);
       setBalances(balancesRes.data);
       setRentRecords(rentRes.data.rent_records || rentRes.data || []);
     } catch (err) {

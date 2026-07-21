@@ -8,13 +8,11 @@ const { v4: uuidv4 } = require('uuid');
 
 /**
  * POST /api/auth/register
- * Register a new user.
  */
 async function register(req, res) {
   try {
     const { name, email, password, phone } = req.body;
 
-    // Validation
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Name is required.' });
     }
@@ -32,24 +30,21 @@ async function register(req, res) {
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
     }
 
-    // Check if email already exists
     const existingUser = await User.findOne({ email: email.trim().toLowerCase() });
     if (existingUser) {
       return res.status(409).json({ success: false, message: 'An account with this email already exists.' });
     }
 
-    // Hash password
     const hashedPassword = await hashPassword(password);
 
-    // Insert user
     const user = new User({
       name: name.trim(),
       email: email.trim().toLowerCase(),
       password: hashedPassword,
+      phone: phone ? phone.trim() : null,
     });
     await user.save();
 
-    // Generate JWT
     const token = generateToken({ id: user._id, email: user.email });
 
     return res.status(201).json({
@@ -60,6 +55,8 @@ async function register(req, res) {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        avatar: user.avatar,
       },
     });
   } catch (err) {
@@ -70,7 +67,6 @@ async function register(req, res) {
 
 /**
  * POST /api/auth/login
- * Authenticate a user and return a JWT.
  */
 async function login(req, res) {
   try {
@@ -83,19 +79,16 @@ async function login(req, res) {
       return res.status(400).json({ success: false, message: 'Password is required.' });
     }
 
-    // Find user by email
     const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
 
-    // Compare password
     const passwordMatch = await comparePassword(password, user.password);
     if (!passwordMatch) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
 
-    // Generate JWT
     const token = generateToken({ id: user._id, email: user.email });
 
     return res.status(200).json({
@@ -106,6 +99,8 @@ async function login(req, res) {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        avatar: user.avatar,
       },
     });
   } catch (err) {
@@ -116,7 +111,6 @@ async function login(req, res) {
 
 /**
  * POST /api/auth/forgot-password
- * Generate and store a password reset token.
  */
 async function forgotPassword(req, res) {
   try {
@@ -128,12 +122,10 @@ async function forgotPassword(req, res) {
 
     const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
-      // Do not reveal whether email exists for security
       return res.status(200).json({ success: true, message: 'Reset token logged to console (if account exists).' });
     }
 
     const resetToken = uuidv4();
-    // Simulate updating reset token since we didn't add it to schema, or just log it
     console.log(`Password reset token for ${user.email}: ${resetToken}`);
 
     return res.status(200).json({
@@ -148,7 +140,6 @@ async function forgotPassword(req, res) {
 
 /**
  * GET /api/auth/profile
- * Get the authenticated user's full profile.
  */
 async function getProfile(req, res) {
   try {
@@ -159,7 +150,6 @@ async function getProfile(req, res) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    // Get house membership info
     const houses = await House.find({ members: userId });
 
     return res.status(200).json({
@@ -168,6 +158,8 @@ async function getProfile(req, res) {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        avatar: user.avatar,
         houses: houses.map(h => ({
           house_id: h._id,
           house_name: h.name,
@@ -182,12 +174,11 @@ async function getProfile(req, res) {
 
 /**
  * PUT /api/auth/profile
- * Update user profile fields.
  */
 async function updateProfile(req, res) {
   try {
     const userId = req.user.id;
-    const { name } = req.body;
+    const { name, phone, avatar } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Name is required.' });
@@ -198,6 +189,8 @@ async function updateProfile(req, res) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
     user.name = name.trim();
+    if (phone !== undefined) user.phone = phone ? phone.trim() : null;
+    if (avatar !== undefined) user.avatar = avatar;
     await user.save();
 
     return res.status(200).json({
@@ -207,6 +200,8 @@ async function updateProfile(req, res) {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        avatar: user.avatar,
       },
     });
   } catch (err) {
@@ -217,7 +212,6 @@ async function updateProfile(req, res) {
 
 /**
  * PUT /api/auth/change-password
- * Change the authenticated user's password.
  */
 async function changePassword(req, res) {
   try {
