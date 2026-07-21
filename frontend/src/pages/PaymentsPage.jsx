@@ -8,7 +8,7 @@ export default function PaymentsPage() {
   const { house, members } = useHouse();
   const { user } = useAuth();
   
-  const [activeTab, setActiveTab] = useState('rent'); // 'rent' or 'payments'
+  const [activeTab, setActiveTab] = useState('payments'); // default to transfers/payments tab as rent is mock
   const [rentRecords, setRentRecords] = useState([]);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +30,7 @@ export default function PaymentsPage() {
   const [creatingPayment, setCreatingPayment] = useState(false);
 
   const isOwnerOrAdmin = house?.user_role === 'owner' || house?.user_role === 'admin';
+  const currentUserId = user?.id || user?._id;
 
   const fetchData = useCallback(async () => {
     if (!house) return;
@@ -113,8 +114,8 @@ export default function PaymentsPage() {
       setCreatingPayment(true);
       await paymentAPI.createPayment({
         amount: amt,
-        to_user_id: paymentRecipient,
-        notes: paymentNotes
+        to_user: paymentRecipient, // backend expects to_user
+        note: paymentNotes          // backend expects note
       });
       setSuccess('Payment recorded successfully!');
       setPaymentAmount('');
@@ -175,16 +176,16 @@ export default function PaymentsPage() {
       {/* Tabs */}
       <div className="tabs" style={{ marginBottom: '16px' }}>
         <button
-          className={`tab ${activeTab === 'rent' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('rent'); setError(''); setSuccess(''); }}
-        >
-          Rent Billing
-        </button>
-        <button
           className={`tab ${activeTab === 'payments' ? 'active' : ''}`}
           onClick={() => { setActiveTab('payments'); setError(''); setSuccess(''); }}
         >
           Roommate Transfers
+        </button>
+        <button
+          className={`tab ${activeTab === 'rent' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('rent'); setError(''); setSuccess(''); }}
+        >
+          Rent Billing
         </button>
       </div>
 
@@ -273,12 +274,12 @@ export default function PaymentsPage() {
               </div>
             ) : rentRecords.length === 0 ? (
               <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '20px 0' }}>
-                No rent records have been posted yet.
+                Rent billing is not supported in this version.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {rentRecords.map((record) => (
-                  <div key={record.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                  <div key={record._id || record.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                     <div className="flex justify-between items-center">
                       <div>
                         <div style={{ fontSize: '14px', fontWeight: 700 }}>
@@ -302,7 +303,7 @@ export default function PaymentsPage() {
                       <button
                         className="btn btn-secondary btn-sm"
                         style={{ marginTop: '8px', width: '100%' }}
-                        onClick={() => handleMarkRentPaid(record.id)}
+                        onClick={() => handleMarkRentPaid(record._id || record.id)}
                       >
                         Mark Rent as Paid
                       </button>
@@ -355,9 +356,9 @@ export default function PaymentsPage() {
                   >
                     <option value="">Select Roommate</option>
                     {members
-                      .filter((m) => (m.user_id || m.id) !== user?.id)
+                      .filter((m) => m._id && currentUserId && m._id.toString() !== currentUserId.toString())
                       .map((m) => (
-                        <option key={m.user_id || m.id} value={m.user_id || m.id}>
+                        <option key={m._id} value={m._id}>
                           {m.name}
                         </option>
                       ))}
@@ -407,19 +408,21 @@ export default function PaymentsPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {payments.map((p) => {
-                  const isRecipient = p.to_user_id === user?.id;
-                  const isSender = p.from_user_id === user?.id;
+                  const payerId = p.paidBy?._id || p.paidBy;
+                  const recipientId = p.paidTo?._id || p.paidTo;
+                  const isRecipient = recipientId && currentUserId && recipientId.toString() === currentUserId.toString();
+                  const isSender = payerId && currentUserId && payerId.toString() === currentUserId.toString();
 
                   return (
-                    <div key={p.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                    <div key={p._id || p.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                       <div className="flex justify-between items-center">
                         <div>
                           <div style={{ fontSize: '14px', fontWeight: 700 }}>
-                            {isSender ? `Paid to ${p.to_name || 'Roommate'}` : `Received from ${p.from_name || 'Roommate'}`}
+                            {isSender ? `Paid to ${p.paidTo?.name || 'Roommate'}` : `Received from ${p.paidBy?.name || 'Roommate'}`}
                           </div>
-                          {p.notes && <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{p.notes}</div>}
+                          {p.note && <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{p.note}</div>}
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {formatDate(p.created_at)}
+                            {formatDate(p.createdAt || p.date)}
                           </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
@@ -436,7 +439,7 @@ export default function PaymentsPage() {
                         <button
                           className="btn btn-secondary btn-sm"
                           style={{ marginTop: '8px', width: '100%' }}
-                          onClick={() => handleMarkPaymentReceived(p.id)}
+                          onClick={() => handleMarkPaymentReceived(p._id || p.id)}
                         >
                           Confirm Receipt of Funds
                         </button>

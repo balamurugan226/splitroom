@@ -20,6 +20,8 @@ export default function SettlementsPage() {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const currentUserId = user?.id || user?._id;
+
   const fetchData = useCallback(async () => {
     if (!house) return;
     try {
@@ -61,7 +63,7 @@ export default function SettlementsPage() {
     try {
       setSubmitting(true);
       await paymentAPI.createSettlement({
-        to_user_id: payeeId,
+        to_user: payeeId, // backend expects to_user
         amount: amt
       });
       setSuccess('Settlement transfer recorded successfully!');
@@ -94,7 +96,7 @@ export default function SettlementsPage() {
   }
 
   // Calculate detailed debts / suggestions
-  const roommateBalances = balances?.roommate_balances || [];
+  const roommateBalances = balances?.balances || [];
   
   return (
     <div className="container">
@@ -151,9 +153,9 @@ export default function SettlementsPage() {
               >
                 <option value="">Select Roommate</option>
                 {members
-                  .filter((m) => (m.user_id || m.id) !== user?.id)
+                  .filter((m) => m._id && currentUserId && m._id.toString() !== currentUserId.toString())
                   .map((m) => (
-                    <option key={m.user_id || m.id} value={m.user_id || m.id}>
+                    <option key={m._id} value={m._id}>
                       {m.name}
                     </option>
                   ))}
@@ -250,7 +252,7 @@ export default function SettlementsPage() {
           <div>
             {settlements.map((s, idx) => (
               <div
-                key={s.id || idx}
+                key={s._id || s.id || idx}
                 className="flex justify-between items-center"
                 style={{
                   padding: '12px 16px',
@@ -259,10 +261,10 @@ export default function SettlementsPage() {
               >
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 600 }}>
-                    {s.from_name} paid {s.to_name}
+                    {s.paidBy?.name || 'Roommate'} paid {s.paidTo?.name || 'Roommate'}
                   </div>
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    {formatDate(s.created_at)}
+                    {formatDate(s.createdAt || s.date)}
                   </span>
                 </div>
                 <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-green)' }}>

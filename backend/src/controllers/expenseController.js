@@ -72,9 +72,12 @@ async function addExpense(req, res) {
       receipt_image,
       notes,
       expense_date,
-      member_ids,
+      member_ids: rawMemberIds,
+      split_with,
       shares: sharesInput,
     } = req.body;
+
+    const member_ids = rawMemberIds || split_with;
 
     if (!description || !description.trim()) {
       return res.status(400).json({ success: false, message: 'Description is required.' });
@@ -205,9 +208,12 @@ async function updateExpense(req, res) {
       receipt_image,
       notes,
       expense_date,
-      member_ids,
+      member_ids: rawMemberIds,
+      split_with,
       shares: sharesInput,
     } = req.body;
+
+    const member_ids = rawMemberIds || split_with;
 
     if (description) expense.description = description.trim();
     if (amount) expense.amount = Number(amount);

@@ -9,22 +9,31 @@ import {
   getInitials,
   EXPENSE_CATEGORIES,
   getCategoryInfo,
-  SPLIT_TYPES,
 } from '../utils/formatters';
 
 function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) {
   const isEdit = !!expense;
+  const currentUserId = currentUser?.id || currentUser?._id;
+  
   const [description, setDescription] = useState(expense?.description || '');
   const [amount, setAmount] = useState(expense?.amount || '');
   const [category, setCategory] = useState(expense?.category || 'other');
   const [date, setDate] = useState(
     expense?.date ? expense.date.slice(0, 10) : new Date().toISOString().slice(0, 10)
   );
-  const [paidBy, setPaidBy] = useState(expense?.paid_by || currentUser?.id || '');
+  
+  const expensePayerId = expense?.paidBy?._id || expense?.paidBy;
+  const [paidBy, setPaidBy] = useState(expensePayerId || currentUserId || '');
   const [splitType, setSplitType] = useState(expense?.split_type || 'equal');
-  const [splitWith, setSplitWith] = useState(
-    expense?.split_with || members.map((m) => m.user_id || m.id)
-  );
+  
+  const initialSplitWith = useMemo(() => {
+    if (expense?.splitAmong) {
+      return expense.splitAmong.map(s => s.user?._id || s.user);
+    }
+    return members.map((m) => m._id);
+  }, [expense, members]);
+  
+  const [splitWith, setSplitWith] = useState(initialSplitWith);
   const [notes, setNotes] = useState(expense?.notes || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -57,17 +66,17 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
       description,
       amount: numAmount,
       category,
-      date,
+      expense_date: date,
       paid_by: paidBy,
       split_type: splitType,
-      split_with: splitWith,
+      member_ids: splitWith,
       notes,
     };
 
     try {
       setLoading(true);
       if (isEdit) {
-        await expenseAPI.updateExpense(expense.id, payload);
+        await expenseAPI.updateExpense(expense._id, payload);
       } else {
         await expenseAPI.addExpense(payload);
       }
@@ -161,7 +170,7 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
                 onChange={(e) => setPaidBy(e.target.value)}
               >
                 {members.map((m) => (
-                  <option key={m.user_id || m.id} value={m.user_id || m.id}>
+                  <option key={m._id} value={m._id}>
                     {m.name}
                   </option>
                 ))}
@@ -173,7 +182,7 @@ function ExpenseBottomSheet({ expense, members, currentUser, onClose, onSave }) 
             <label className="label">Roommates Splitting With</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: '4px' }}>
               {members.map((m) => {
-                const memberId = m.user_id || m.id;
+                const memberId = m._id;
                 const isSelected = splitWith.includes(memberId);
                 return (
                   <div
@@ -255,6 +264,8 @@ export default function ExpensesPage() {
   const [filterMonth, setFilterMonth] = useState(getCurrentMonth());
   const [deleteLoading, setDeleteLoading] = useState(null);
 
+  const currentUserId = user?.id || user?._id;
+
   const fetchExpenses = useCallback(async () => {
     if (!house) return;
     try {
@@ -281,7 +292,7 @@ export default function ExpensesPage() {
       const matchSearch =
         !search ||
         e.description?.toLowerCase().includes(search.toLowerCase()) ||
-        e.paid_by_name?.toLowerCase().includes(search.toLowerCase());
+        e.paidBy?.name?.toLowerCase().includes(search.toLowerCase());
       return matchSearch;
     });
   }, [expenses, search]);
@@ -291,7 +302,7 @@ export default function ExpensesPage() {
     try {
       setDeleteLoading(id);
       await expenseAPI.deleteExpense(id);
-      setExpenses((prev) => prev.filter((e) => e.id !== id));
+      setExpenses((prev) => prev.filter((e) => e._id !== id));
     } catch (err) {
       alert('Failed to delete expense.');
     } finally {
@@ -306,7 +317,16 @@ export default function ExpensesPage() {
   };
 
   const totalAmount = filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  const myShareTotal = filteredExpenses.reduce((sum, e) => sum + Number(e.my_share || 0), 0);
+  
+  const myShareTotal = useMemo(() => {
+    return filteredExpenses.reduce((sum, e) => {
+      const myShareObj = e.splitAmong?.find(s => {
+        const sUserId = s.user?._id || s.user;
+        return sUserId && currentUserId && sUserId.toString() === currentUserId.toString();
+      });
+      return sum + Number(myShareObj?.amount || 0);
+    }, 0);
+  }, [filteredExpenses, currentUserId]);
 
   if (!house) {
     return (
@@ -393,12 +413,18 @@ export default function ExpensesPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filteredExpenses.map((exp, idx) => {
             const cat = getCategoryInfo(exp.category);
-            const isPayerCurrentUser = exp.paid_by === user?.id;
+            const payerId = exp.paidBy?._id || exp.paidBy;
+            const isPayerCurrentUser = payerId && currentUserId && payerId.toString() === currentUserId.toString();
             const canEdit = isPayerCurrentUser || house.user_role === 'owner' || house.user_role === 'admin';
+            
+            const myShareObj = exp.splitAmong?.find(s => {
+              const sUserId = s.user?._id || s.user;
+              return sUserId && currentUserId && sUserId.toString() === currentUserId.toString();
+            });
 
             return (
               <div
-                key={exp.id || idx}
+                key={exp._id || idx}
                 className="list-item"
                 style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}
               >
@@ -409,14 +435,14 @@ export default function ExpensesPage() {
                     <div>
                       <div style={{ fontSize: '14px', fontWeight: 600 }}>{exp.description}</div>
                       <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        Paid by {isPayerCurrentUser ? 'You' : exp.paid_by_name} · {formatDate(exp.date)}
+                        Paid by {isPayerCurrentUser ? 'You' : (exp.paidBy?.name || 'Roommate')} · {formatDate(exp.date)}
                       </div>
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '14px', fontWeight: 700 }}>{formatCurrency(exp.amount)}</div>
                     <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      Share: {formatCurrency(exp.my_share)}
+                      Share: {formatCurrency(myShareObj?.amount || 0)}
                     </div>
                   </div>
                 </div>
@@ -432,8 +458,8 @@ export default function ExpensesPage() {
                     marginTop: '4px'
                   }}
                 >
-                  <span className={`badge ${exp.my_status === 'paid' ? 'badge-green' : 'badge-orange'}`}>
-                    {exp.my_status}
+                  <span className={`badge ${isPayerCurrentUser ? 'badge-green' : 'badge-orange'}`}>
+                    {isPayerCurrentUser ? 'Paid' : 'Owed'}
                   </span>
                   
                   {canEdit && (
@@ -448,10 +474,10 @@ export default function ExpensesPage() {
                       <button
                         className="btn btn-danger btn-sm"
                         style={{ padding: '4px 8px' }}
-                        onClick={() => handleDelete(exp.id)}
-                        disabled={deleteLoading === exp.id}
+                        onClick={() => handleDelete(exp._id)}
+                        disabled={deleteLoading === exp._id}
                       >
-                        {deleteLoading === exp.id ? '...' : 'Delete'}
+                        {deleteLoading === exp._id ? '...' : 'Delete'}
                       </button>
                     </div>
                   )}
