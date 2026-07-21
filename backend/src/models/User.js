@@ -22,6 +22,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  budget_limit: {
+    type: Number,
+    default: 0,
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

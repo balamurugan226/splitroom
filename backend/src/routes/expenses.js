@@ -9,6 +9,9 @@ const {
   updateExpense,
   deleteExpense,
   getExpenseSummary,
+  getRecurringBills,
+  addRecurringBill,
+  deleteRecurringBill,
 } = require('../controllers/expenseController');
 
 // All expense routes require auth (applied in app.js)
@@ -16,6 +19,11 @@ const {
 router.get('/', getExpenses);
 router.post('/', addExpense);
 router.get('/summary', getExpenseSummary);
+
+router.get('/recurring', getRecurringBills);
+router.post('/recurring', addRecurringBill);
+router.delete('/recurring/:id', deleteRecurringBill);
+
 router.get('/:id', getExpenseById);
 router.put('/:id', updateExpense);
 router.delete('/:id', deleteExpense);

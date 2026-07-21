@@ -2,6 +2,7 @@
 
 const House = require('../models/House');
 const User = require('../models/User');
+const Notice = require('../models/Notice');
 
 function generateInviteCode(length = 8) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -340,6 +341,64 @@ async function regenerateInviteCode(req, res) {
   }
 }
 
+async function getNotices(req, res) {
+  try {
+    const userId = req.user.id;
+    const houseId = await House.findOne({ members: userId }).then(h => h ? h._id : null);
+    if (!houseId) return res.status(200).json({ success: true, notices: [] });
+
+    const notices = await Notice.find({ houseId })
+      .populate('createdBy', 'name')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({ success: true, notices });
+  } catch (err) {
+    console.error('[getNotices]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
+async function createNotice(req, res) {
+  try {
+    const userId = req.user.id;
+    const houseId = await House.findOne({ members: userId }).then(h => h ? h._id : null);
+    if (!houseId) return res.status(433).json({ success: false, message: 'Not in a room.' });
+
+    const { content, color } = req.body;
+    if (!content || !content.trim()) {
+      return res.status(400).json({ success: false, message: 'Content is required.' });
+    }
+
+    const notice = new Notice({
+      houseId,
+      content: content.trim(),
+      color: color || '#fffbeb',
+      createdBy: userId
+    });
+
+    await notice.save();
+    const populated = await Notice.findById(notice._id).populate('createdBy', 'name');
+    return res.status(201).json({ success: true, notice: populated });
+  } catch (err) {
+    console.error('[createNotice]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
+async function deleteNotice(req, res) {
+  try {
+    const userId = req.user.id;
+    const houseId = await House.findOne({ members: userId }).then(h => h ? h._id : null);
+    if (!houseId) return res.status(403).json({ success: false, message: 'Forbidden.' });
+
+    await Notice.deleteOne({ _id: req.params.id, houseId });
+    return res.status(200).json({ success: true, message: 'Notice cleared.' });
+  } catch (err) {
+    console.error('[deleteNotice]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
 module.exports = {
   createHouse,
   getMyHouse,
@@ -351,4 +410,7 @@ module.exports = {
   removeMember,
   updateMemberRole,
   regenerateInviteCode,
+  getNotices,
+  createNotice,
+  deleteNotice,
 };

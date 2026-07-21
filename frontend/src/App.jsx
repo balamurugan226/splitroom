@@ -14,6 +14,7 @@ import ExpensesPage from './pages/ExpensesPage';
 import PaymentsPage from './pages/PaymentsPage';
 import SettlementsPage from './pages/SettlementsPage';
 import ProfilePage from './pages/ProfilePage';
+import RecurringBillsPage from './pages/RecurringBillsPage';
 import Layout from './components/Layout';
 
 function LoadingScreen() {
@@ -71,6 +72,7 @@ function AppRoutes() {
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/payments" element={<PaymentsPage />} />
         <Route path="/settlements" element={<SettlementsPage />} />
+        <Route path="/recurring" element={<RecurringBillsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Route>
       {/* Catch-all route */}

@@ -10,6 +10,7 @@ export default function ProfilePage() {
   // Profile Edit State
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '');
+  const [budgetLimit, setBudgetLimit] = useState(user?.budget_limit || '');
   const [updatingProfile, setUpdatingProfile] = useState(false);
 
   // Password Change State
@@ -33,8 +34,17 @@ export default function ProfilePage() {
 
     try {
       setUpdatingProfile(true);
-      await authAPI.updateProfile({ name: name.trim(), phone: phone.trim() });
-      updateUser({ name: name.trim(), phone: phone.trim() });
+      const limitVal = budgetLimit ? Number(budgetLimit) : 0;
+      await authAPI.updateProfile({
+        name: name.trim(),
+        phone: phone.trim(),
+        budget_limit: limitVal
+      });
+      updateUser({
+        name: name.trim(),
+        phone: phone.trim(),
+        budget_limit: limitVal
+      });
       setSuccess('Profile details updated successfully!');
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to update profile.');
@@ -64,8 +74,8 @@ export default function ProfilePage() {
     try {
       setChangingPassword(true);
       await authAPI.changePassword({
-        current_password: currentPassword,
-        new_password: newPassword
+        currentPassword,
+        newPassword
       });
       setSuccess('Password updated successfully!');
       setCurrentPassword('');
@@ -114,15 +124,27 @@ export default function ProfilePage() {
             />
           </div>
 
-          <div className="form-group">
-            <label className="label">Phone Number</label>
-            <input
-              className="input"
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="10-digit mobile number"
-            />
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="label">Phone Number</label>
+              <input
+                className="input"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="10-digit mobile number"
+              />
+            </div>
+            <div className="form-group">
+              <label className="label">Monthly Spend Target Limit (₹)</label>
+              <input
+                className="input"
+                type="number"
+                value={budgetLimit}
+                onChange={(e) => setBudgetLimit(e.target.value)}
+                placeholder="E.g. 5000 (0 to clear)"
+              />
+            </div>
           </div>
 
           <button type="submit" className="btn btn-primary" disabled={updatingProfile}>
@@ -175,7 +197,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Logout Card */}
-      <div className="card text-center">
+      <div className="card text-center" style={{ marginBottom: 0 }}>
         <button className="btn btn-danger" onClick={handleLogout}>
           🚪 Sign Out
         </button>

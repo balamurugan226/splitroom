@@ -1,7 +1,8 @@
 'use strict';
 
-const Expense = require('../models/Expense');
+const Transaction = require('../models/Transaction');
 const House = require('../models/House');
+const RecurringBill = require('../models/RecurringBill');
 const mongoose = require('mongoose');
 
 async function getUserHouseId(userId) {
@@ -10,42 +11,96 @@ async function getUserHouseId(userId) {
 }
 
 /**
+ * Automatically check and post active recurring bills for the current month
+ */
+async function checkAndPostRecurringBills(houseId) {
+  try {
+    const recurring = await RecurringBill.find({ houseId, active: true });
+    if (recurring.length === 0) return;
+
+    const now = new Date();
+    const currentMonthStr = now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }); // E.g. "Jul 2026"
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    for (const bill of recurring) {
+      // Check if already posted for the current month
+      const alreadyPosted = await Transaction.findOne({
+        houseId,
+        type: 'expense',
+        description: `${bill.description} (${currentMonthStr})`,
+        date: { $gte: startOfMonth, $lte: endOfMonth }
+      });
+
+      if (!alreadyPosted) {
+        const totalAmount = bill.amount;
+        const member_ids = bill.splitWith && bill.splitWith.length > 0 ? bill.splitWith : [bill.paidBy];
+        let splitAmong = [];
+
+        const equalAmount = parseFloat((totalAmount / member_ids.length).toFixed(2));
+        let runningTotal = 0;
+        splitAmong = member_ids.map((uid, idx) => {
+          let shareAmount = equalAmount;
+          if (idx === member_ids.length - 1) {
+            shareAmount = parseFloat((totalAmount - runningTotal).toFixed(2));
+          }
+          runningTotal += equalAmount;
+          return { user: uid, amount: shareAmount };
+        });
+
+        const tx = new Transaction({
+          houseId,
+          type: 'expense',
+          description: `${bill.description} (${currentMonthStr})`,
+          amount: totalAmount,
+          category: bill.category || 'other',
+          paidBy: bill.paidBy,
+          splitAmong,
+          date: new Date()
+        });
+        await tx.save();
+      }
+    }
+  } catch (err) {
+    console.error('Error posting recurring bills:', err);
+  }
+}
+
+/**
  * GET /api/expenses
  */
 async function getExpenses(req, res) {
   try {
     const userId = req.user.id;
+    const { category, month } = req.query;
+
     const houseId = await getUserHouseId(userId);
     if (!houseId) {
-      return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
+      return res.status(200).json({ success: true, expenses: [] });
     }
 
-    const { category, page = 1, limit = 10 } = req.query;
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    // Auto trigger check & post
+    await checkAndPostRecurringBills(houseId);
 
-    let query = { houseId };
-    if (category) {
+    const query = { houseId, type: 'expense' };
+
+    if (category && category !== 'all') {
       query.category = category;
     }
 
-    const total = await Expense.countDocuments(query);
-    const expenses = await Expense.find(query)
+    if (month) {
+      const [year, m] = month.split('-');
+      const start = new Date(parseInt(year), parseInt(m) - 1, 1);
+      const end = new Date(parseInt(year), parseInt(m), 0, 23, 59, 59);
+      query.date = { $gte: start, $lte: end };
+    }
+
+    const expenses = await Transaction.find(query)
       .populate('paidBy', 'name avatar')
       .populate('splitAmong.user', 'name avatar')
-      .sort({ date: -1 })
-      .skip(offset)
-      .limit(parseInt(limit, 10));
+      .sort({ date: -1, createdAt: -1 });
 
-    return res.status(200).json({
-      success: true,
-      expenses,
-      pagination: {
-        total,
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        pages: Math.ceil(total / parseInt(limit, 10)),
-      },
-    });
+    return res.status(200).json({ success: true, expenses });
   } catch (err) {
     console.error('[getExpenses]', err);
     return res.status(500).json({ success: false, message: 'Server error.', error: err.message });
@@ -74,7 +129,6 @@ async function addExpense(req, res) {
       expense_date,
       member_ids: rawMemberIds,
       split_with,
-      shares: sharesInput,
     } = req.body;
 
     const member_ids = rawMemberIds || split_with;
@@ -98,88 +152,43 @@ async function addExpense(req, res) {
     const totalAmount = Number(amount);
     let splitAmong = [];
 
-    if (split_type === 'equal') {
-      const equalAmount = parseFloat((totalAmount / member_ids.length).toFixed(2));
-      let runningTotal = 0;
-      splitAmong = member_ids.map((uid, idx) => {
-        let shareAmount = equalAmount;
-        if (idx === member_ids.length - 1) {
-          shareAmount = parseFloat((totalAmount - runningTotal).toFixed(2));
-        }
-        runningTotal += equalAmount;
-        return { user: uid, amount: shareAmount };
-      });
-    } else if (split_type === 'percentage') {
-      let runningTotal = 0;
-      splitAmong = sharesInput.map((s, idx) => {
-        let shareAmount = parseFloat((totalAmount * Number(s.percentage) / 100).toFixed(2));
-        if (idx === sharesInput.length - 1) {
-          shareAmount = parseFloat((totalAmount - runningTotal).toFixed(2));
-        }
-        runningTotal += parseFloat((totalAmount * Number(s.percentage) / 100).toFixed(2));
-        return { user: s.user_id, amount: shareAmount };
-      });
-    } else if (split_type === 'custom') {
-      splitAmong = sharesInput.map(s => ({
-        user: s.user_id,
-        amount: parseFloat(Number(s.amount).toFixed(2)),
-      }));
-    }
+    const equalAmount = parseFloat((totalAmount / member_ids.length).toFixed(2));
+    let runningTotal = 0;
+    splitAmong = member_ids.map((uid, idx) => {
+      let shareAmount = equalAmount;
+      if (idx === member_ids.length - 1) {
+        shareAmount = parseFloat((totalAmount - runningTotal).toFixed(2));
+      }
+      runningTotal += equalAmount;
+      return { user: uid, amount: shareAmount };
+    });
 
-    const expense = new Expense({
+    const expense = new Transaction({
+      houseId,
+      type: 'expense',
       description: description.trim(),
       amount: totalAmount,
       category: category.trim(),
-      houseId,
       paidBy: paid_by,
       splitAmong,
-      split_type,
       receipt_image,
       notes,
       date: expense_date ? new Date(expense_date) : Date.now()
     });
 
     await expense.save();
-    
-    const populated = await Expense.findById(expense._id)
+
+    const populated = await Transaction.findById(expense._id)
       .populate('paidBy', 'name avatar')
       .populate('splitAmong.user', 'name avatar');
 
     return res.status(201).json({
       success: true,
-      message: 'Expense added successfully.',
+      message: 'Expense created successfully.',
       expense: populated,
     });
   } catch (err) {
     console.error('[addExpense]', err);
-    return res.status(500).json({ success: false, message: 'Server error.', error: err.message });
-  }
-}
-
-/**
- * GET /api/expenses/:id
- */
-async function getExpenseById(req, res) {
-  try {
-    const userId = req.user.id;
-    const expenseId = req.params.id;
-    const houseId = await getUserHouseId(userId);
-
-    if (!houseId) {
-      return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
-    }
-
-    const expense = await Expense.findOne({ _id: expenseId, houseId })
-      .populate('paidBy', 'name avatar')
-      .populate('splitAmong.user', 'name avatar');
-
-    if (!expense) {
-      return res.status(404).json({ success: false, message: 'Expense not found.' });
-    }
-
-    return res.status(200).json({ success: true, expense });
-  } catch (err) {
-    console.error('[getExpenseById]', err);
     return res.status(500).json({ success: false, message: 'Server error.', error: err.message });
   }
 }
@@ -192,7 +201,12 @@ async function updateExpense(req, res) {
     const userId = req.user.id;
     const expenseId = req.params.id;
 
-    const expense = await Expense.findById(expenseId);
+    const houseId = await getUserHouseId(userId);
+    if (!houseId) {
+      return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
+    }
+
+    const expense = await Transaction.findById(expenseId);
     if (!expense) {
       return res.status(404).json({ success: false, message: 'Expense not found.' });
     }
@@ -210,7 +224,6 @@ async function updateExpense(req, res) {
       expense_date,
       member_ids: rawMemberIds,
       split_with,
-      shares: sharesInput,
     } = req.body;
 
     const member_ids = rawMemberIds || split_with;
@@ -218,7 +231,6 @@ async function updateExpense(req, res) {
     if (description) expense.description = description.trim();
     if (amount) expense.amount = Number(amount);
     if (category) expense.category = category.trim();
-    if (split_type) expense.split_type = split_type;
     if (receipt_image !== undefined) expense.receipt_image = receipt_image;
     if (notes !== undefined) expense.notes = notes;
     if (expense_date) expense.date = new Date(expense_date);
@@ -226,36 +238,22 @@ async function updateExpense(req, res) {
     if (member_ids && member_ids.length > 0) {
       const totalAmount = expense.amount;
       let splitAmong = [];
-      if (expense.split_type === 'equal') {
-        const equalAmount = parseFloat((totalAmount / member_ids.length).toFixed(2));
-        let runningTotal = 0;
-        splitAmong = member_ids.map((uid, idx) => {
-          let shareAmount = equalAmount;
-          if (idx === member_ids.length - 1) {
-            shareAmount = parseFloat((totalAmount - runningTotal).toFixed(2));
-          }
-          runningTotal += equalAmount;
-          return { user: uid, amount: shareAmount };
-        });
-      } else if (expense.split_type === 'percentage' && sharesInput) {
-        let runningTotal = 0;
-        splitAmong = sharesInput.map((s, idx) => {
-          let shareAmount = parseFloat((totalAmount * Number(s.percentage) / 100).toFixed(2));
-          if (idx === sharesInput.length - 1) {
-            shareAmount = parseFloat((totalAmount - runningTotal).toFixed(2));
-          }
-          runningTotal += parseFloat((totalAmount * Number(s.percentage) / 100).toFixed(2));
-          return { user: s.user_id, amount: shareAmount };
-        });
-      } else if (expense.split_type === 'custom' && sharesInput) {
-        splitAmong = sharesInput.map(s => ({ user: s.user_id, amount: Number(s.amount) }));
-      }
+      const equalAmount = parseFloat((totalAmount / member_ids.length).toFixed(2));
+      let runningTotal = 0;
+      splitAmong = member_ids.map((uid, idx) => {
+        let shareAmount = equalAmount;
+        if (idx === member_ids.length - 1) {
+          shareAmount = parseFloat((totalAmount - runningTotal).toFixed(2));
+        }
+        runningTotal += equalAmount;
+        return { user: uid, amount: shareAmount };
+      });
       expense.splitAmong = splitAmong;
     }
 
     await expense.save();
 
-    const populated = await Expense.findById(expense._id)
+    const populated = await Transaction.findById(expense._id)
       .populate('paidBy', 'name avatar')
       .populate('splitAmong.user', 'name avatar');
 
@@ -283,17 +281,16 @@ async function deleteExpense(req, res) {
       return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
     }
 
-    const expense = await Expense.findById(expenseId);
+    const expense = await Transaction.findById(expenseId);
     if (!expense) {
       return res.status(404).json({ success: false, message: 'Expense not found.' });
     }
     
-    // Simplification for delete permissions
     if (expense.paidBy.toString() !== userId) {
       return res.status(403).json({ success: false, message: 'Only the person who paid can delete this expense.' });
     }
 
-    await Expense.deleteOne({ _id: expenseId });
+    await Transaction.deleteOne({ _id: expenseId });
 
     return res.status(200).json({ success: true, message: 'Expense deleted successfully.' });
   } catch (err) {
@@ -310,17 +307,24 @@ async function getExpenseSummary(req, res) {
     const userId = req.user.id;
     const houseId = await getUserHouseId(userId);
     if (!houseId) {
-      return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
+      return res.status(200).json({
+        success: true,
+        summary: { total_this_month: 0, your_share_this_month: 0, you_paid_this_month: 0, recent_expenses: [] }
+      });
     }
 
-    const expenses = await Expense.find({ houseId });
+    // Auto trigger check & post
+    await checkAndPostRecurringBills(houseId);
+
+    const expenses = await Transaction.find({ houseId, type: 'expense' });
 
     let totalThisMonth = 0;
     let userShareThisMonth = 0;
     let userPaidThisMonth = 0;
 
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
 
     expenses.forEach(exp => {
       const expDate = new Date(exp.date);
@@ -336,7 +340,7 @@ async function getExpenseSummary(req, res) {
       }
     });
 
-    const recentExpensesRaw = await Expense.find({ houseId })
+    const recentExpensesRaw = await Transaction.find({ houseId, type: 'expense' })
       .populate('paidBy', 'name')
       .sort({ date: -1, createdAt: -1 })
       .limit(5);
@@ -369,6 +373,83 @@ async function getExpenseSummary(req, res) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Recurring Bills API Controllers
+// ---------------------------------------------------------------------------
+
+async function getRecurringBills(req, res) {
+  try {
+    const userId = req.user.id;
+    const houseId = await getUserHouseId(userId);
+    if (!houseId) return res.status(200).json({ success: true, recurring: [] });
+
+    const recurring = await RecurringBill.find({ houseId })
+      .populate('paidBy', 'name')
+      .populate('splitWith', 'name');
+
+    return res.status(200).json({ success: true, recurring });
+  } catch (err) {
+    console.error('[getRecurringBills]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
+async function addRecurringBill(req, res) {
+  try {
+    const userId = req.user.id;
+    const houseId = await getUserHouseId(userId);
+    if (!houseId) return res.status(403).json({ success: false, message: 'Not member of any house.' });
+
+    const { description, amount, category = 'other', paidBy, dueDay, splitWith } = req.body;
+
+    if (!description || !amount || !dueDay) {
+      return res.status(400).json({ success: false, message: 'Missing parameters.' });
+    }
+
+    const bill = new RecurringBill({
+      houseId,
+      description,
+      amount: Number(amount),
+      category,
+      paidBy: paidBy || userId,
+      dueDay: Number(dueDay),
+      splitWith: splitWith || [userId]
+    });
+
+    await bill.save();
+    return res.status(201).json({ success: true, bill });
+  } catch (err) {
+    console.error('[addRecurringBill]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
+async function deleteRecurringBill(req, res) {
+  try {
+    const userId = req.user.id;
+    const houseId = await getUserHouseId(userId);
+    if (!houseId) return res.status(403).json({ success: false, message: 'Forbidden' });
+
+    await RecurringBill.deleteOne({ _id: req.params.id, houseId });
+    return res.status(200).json({ success: true, message: 'Deleted recurring bill' });
+  } catch (err) {
+    console.error('[deleteRecurringBill]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
+async function getExpenseById(req, res) {
+  try {
+    const expense = await Transaction.findById(req.params.id)
+      .populate('paidBy', 'name avatar')
+      .populate('splitAmong.user', 'name avatar');
+    if (!expense) return res.status(404).json({ success: false, message: 'Expense not found.' });
+    return res.status(200).json({ success: true, expense });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
 module.exports = {
   getExpenses,
   addExpense,
@@ -376,4 +457,7 @@ module.exports = {
   updateExpense,
   deleteExpense,
   getExpenseSummary,
+  getRecurringBills,
+  addRecurringBill,
+  deleteRecurringBill,
 };

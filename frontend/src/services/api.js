@@ -73,6 +73,11 @@ export const houseAPI = {
   updateMemberRole: (houseId, memberId, role) =>
     api.put(`/houses/${houseId}/members/${memberId}/role`, { role }),
   regenerateInvite: (id) => api.post(`/houses/${id}/regenerate-invite`),
+  
+  // Notices (Sticky Notes)
+  getNotices: () => api.get('/houses/notices'),
+  createNotice: (data) => api.post('/houses/notices', data),
+  deleteNotice: (id) => api.delete(`/houses/notices/${id}`),
 };
 
 // ---------- Expense ----------
@@ -82,6 +87,11 @@ export const expenseAPI = {
   updateExpense: (id, data) => api.put(`/expenses/${id}`, data),
   deleteExpense: (id) => api.delete(`/expenses/${id}`),
   getSummary: () => api.get('/expenses/summary'),
+
+  // Recurring Bills
+  getRecurring: () => api.get('/expenses/recurring'),
+  addRecurring: (data) => api.post('/expenses/recurring', data),
+  deleteRecurring: (id) => api.delete(`/expenses/recurring/${id}`),
 };
 
 // ---------- Payment ----------

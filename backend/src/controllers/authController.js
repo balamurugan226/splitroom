@@ -160,6 +160,7 @@ async function getProfile(req, res) {
         email: user.email,
         phone: user.phone,
         avatar: user.avatar,
+        budget_limit: user.budget_limit || 0,
         houses: houses.map(h => ({
           house_id: h._id,
           house_name: h.name,
@@ -178,7 +179,7 @@ async function getProfile(req, res) {
 async function updateProfile(req, res) {
   try {
     const userId = req.user.id;
-    const { name, phone, avatar } = req.body;
+    const { name, phone, avatar, budget_limit } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Name is required.' });
@@ -191,6 +192,7 @@ async function updateProfile(req, res) {
     user.name = name.trim();
     if (phone !== undefined) user.phone = phone ? phone.trim() : null;
     if (avatar !== undefined) user.avatar = avatar;
+    if (budget_limit !== undefined) user.budget_limit = Number(budget_limit);
     await user.save();
 
     return res.status(200).json({
@@ -202,6 +204,7 @@ async function updateProfile(req, res) {
         email: user.email,
         phone: user.phone,
         avatar: user.avatar,
+        budget_limit: user.budget_limit || 0,
       },
     });
   } catch (err) {

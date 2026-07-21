@@ -13,6 +13,9 @@ const {
   removeMember,
   updateMemberRole,
   regenerateInviteCode,
+  getNotices,
+  createNotice,
+  deleteNotice,
 } = require('../controllers/houseController');
 
 // All house routes require auth (applied in app.js)
@@ -20,6 +23,10 @@ const {
 router.get('/my-house', getMyHouse);
 router.post('/create', createHouse);
 router.post('/join', joinHouse);
+
+router.get('/notices', getNotices);
+router.post('/notices', createNotice);
+router.delete('/notices/:id', deleteNotice);
 
 router.get('/:id', getHouseById);
 router.put('/:id', updateHouse);

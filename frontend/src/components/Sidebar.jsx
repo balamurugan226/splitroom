@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Home, Users, Receipt, CreditCard, ArrowLeftRight, User, LogOut, X } from 'lucide-react';
+import { LayoutDashboard, Home, Users, Receipt, CreditCard, ArrowLeftRight, Calendar, User, LogOut, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const navItems = [
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/expenses', icon: Receipt, label: 'Expenses' },
   { to: '/payments', icon: CreditCard, label: 'Payments' },
   { to: '/settlements', icon: ArrowLeftRight, label: 'Settlements' },
+  { to: '/recurring', icon: Calendar, label: 'Recurring Bills' },
   { to: '/profile', icon: User, label: 'Profile' },
 ];
 

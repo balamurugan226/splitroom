@@ -153,6 +153,21 @@ export default function HousePage() {
     setTimeout(() => setSuccess(''), 3000);
   };
 
+  const shareInviteCode = () => {
+    if (!house?.invite_code) return;
+    const text = `Hey! Join our flat room "${house.name}" on SplitRoom using my invite code: ${house.invite_code}`;
+    if (navigator.share) {
+      navigator.share({
+        title: 'Join my flat on SplitRoom',
+        text: text,
+      }).catch(err => console.error(err));
+    } else {
+      navigator.clipboard.writeText(text);
+      setSuccess('Invite text copied! Paste it in WhatsApp to invite flatmates.');
+      setTimeout(() => setSuccess(''), 4000);
+    }
+  };
+
   // Render when user does NOT have a house
   if (!house) {
     return (
@@ -387,8 +402,11 @@ export default function HousePage() {
                 value={house.invite_code || ''}
                 style={{ textAlign: 'center', fontWeight: 700, letterSpacing: '0.1em', fontSize: '16px', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
               />
-              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={copyInviteCode}>
+              <button className="btn btn-secondary" style={{ width: 'auto' }} onClick={copyInviteCode}>
                 Copy
+              </button>
+              <button className="btn btn-primary" style={{ width: 'auto' }} onClick={shareInviteCode}>
+                🔗 Share
               </button>
             </div>
 

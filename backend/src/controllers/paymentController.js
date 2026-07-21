@@ -1,11 +1,8 @@
 'use strict';
 
-const Payment = require('../models/Payment');
-const Settlement = require('../models/Settlement');
+const Transaction = require('../models/Transaction');
 const House = require('../models/House');
-const Expense = require('../models/Expense');
 const User = require('../models/User');
-const mongoose = require('mongoose');
 
 async function getUserHouseId(userId) {
   const house = await House.findOne({ members: userId });
@@ -20,13 +17,13 @@ async function getPayments(req, res) {
     const userId = req.user.id;
     const houseId = await getUserHouseId(userId);
     if (!houseId) {
-      return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
+      return res.status(200).json({ success: true, payments: [] });
     }
 
-    const payments = await Payment.find({
+    const payments = await Transaction.find({
       houseId,
-      $or: [{ paidBy: userId }, { paidTo: userId }]
-    }).populate('paidBy', 'name').populate('paidTo', 'name').sort({ date: -1 });
+      type: { $in: ['transfer', 'settlement'] }
+    }).populate('paidBy', 'name').populate('paidTo', 'name').sort({ date: -1, createdAt: -1 });
 
     return res.status(200).json({ success: true, payments });
   } catch (err) {
@@ -46,23 +43,25 @@ async function createPayment(req, res) {
       return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
     }
 
-    const { to_user, amount, payment_type = 'expense', note } = req.body;
+    const { to_user, amount, note } = req.body;
 
     if (!to_user) return res.status(400).json({ success: false, message: 'to_user is required.' });
     if (!amount) return res.status(400).json({ success: false, message: 'amount is required.' });
 
-    const payment = new Payment({
+    const payment = new Transaction({
       houseId,
+      type: 'transfer',
+      description: `Transfer to roommate`,
+      amount: Number(amount),
       paidBy: userId,
       paidTo: to_user,
-      amount: Number(amount),
-      payment_type,
-      note
+      notes: note,
+      status: 'pending'
     });
 
     await payment.save();
     
-    const populated = await Payment.findById(payment._id).populate('paidBy', 'name').populate('paidTo', 'name');
+    const populated = await Transaction.findById(payment._id).populate('paidBy', 'name').populate('paidTo', 'name');
 
     return res.status(201).json({
       success: true,
@@ -83,7 +82,7 @@ async function markPaid(req, res) {
     const userId = req.user.id;
     const paymentId = req.params.id;
 
-    const payment = await Payment.findById(paymentId);
+    const payment = await Transaction.findById(paymentId);
     if (!payment) return res.status(404).json({ success: false, message: 'Payment not found.' });
 
     if (payment.paidBy.toString() !== userId && payment.paidTo.toString() !== userId) {
@@ -115,86 +114,127 @@ async function getBalances(req, res) {
       return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
     }
 
-    const house = await House.findById(houseId).populate('members', 'name avatar');
-    const expenses = await Expense.find({ houseId });
-    const payments = await Payment.find({ houseId, status: 'pending' });
-    const settlements = await Settlement.find({ houseId });
+    const house = await House.findById(houseId).populate('members', 'name avatar budget_limit');
+    const transactions = await Transaction.find({ houseId });
 
-    const balances = [];
-    let myBalance = 0;
-    let owedToMe = 0;
-    let iOwe = 0;
+    // Initialize balances map
+    const netBalances = {};
+    for (const member of house.members) {
+      netBalances[member._id.toString()] = 0;
+    }
+
+    // Loop through all transactions to calculate aggregate Net Balance for each user
+    transactions.forEach(tx => {
+      const payerId = tx.paidBy.toString();
+      const amt = Number(tx.amount || 0);
+
+      // Check if user exists in house
+      if (netBalances[payerId] === undefined) return;
+
+      if (tx.type === 'expense') {
+        netBalances[payerId] += amt;
+        tx.splitAmong.forEach(s => {
+          const splitUserId = s.user.toString();
+          if (netBalances[splitUserId] !== undefined) {
+            netBalances[splitUserId] -= Number(s.amount || 0);
+          }
+        });
+      } else if (tx.type === 'transfer' || tx.type === 'settlement') {
+        const recipientId = tx.paidTo?.toString();
+        if (recipientId && netBalances[recipientId] !== undefined) {
+          // Payer paid money -> their net balance increases (owed more/owes less)
+          netBalances[payerId] += amt;
+          // Recipient received money -> their net balance decreases (owes more/owed less)
+          netBalances[recipientId] -= amt;
+        }
+      }
+    });
+
+    // Match Debtors & Creditors using Greedy Debt Minimization
+    const debtors = [];
+    const creditors = [];
 
     for (const member of house.members) {
-      if (member._id.toString() === userId) continue;
-
-      let theyOweMe = 0;
-      let iOweThem = 0;
-
-      // Expenses paid by me, they owe their share
-      expenses.forEach(exp => {
-        if (exp.paidBy.toString() === userId) {
-          const share = exp.splitAmong.find(s => s.user.toString() === member._id.toString());
-          if (share) theyOweMe += share.amount;
-        }
-        // Expenses paid by them, I owe my share
-        if (exp.paidBy.toString() === member._id.toString()) {
-          const share = exp.splitAmong.find(s => s.user.toString() === userId);
-          if (share) iOweThem += share.amount;
-        }
-      });
-
-      // Payments pending
-      let pendingIpaidThem = 0;
-      let pendingTheySentMe = 0;
-      payments.forEach(p => {
-        if (p.paidBy.toString() === userId && p.paidTo.toString() === member._id.toString()) {
-          pendingIpaidThem += p.amount;
-        }
-        if (p.paidBy.toString() === member._id.toString() && p.paidTo.toString() === userId) {
-          pendingTheySentMe += p.amount;
-        }
-      });
-
-      // Settlements
-      let settledIpaidThem = 0;
-      let settledTheyPaidMe = 0;
-      settlements.forEach(s => {
-        if (s.paidBy.toString() === userId && s.paidTo.toString() === member._id.toString()) {
-          settledIpaidThem += s.amount;
-        }
-        if (s.paidBy.toString() === member._id.toString() && s.paidTo.toString() === userId) {
-          settledTheyPaidMe += s.amount;
-        }
-      });
-
-      // Formula: base expenses difference, plus payments/settlements I made to them (offsetting what I owe or adding to what they owe), minus payments/settlements they made to me (offsetting what they owe or adding to what I owe)
-      const net = (theyOweMe - iOweThem + pendingIpaidThem - pendingTheySentMe + settledIpaidThem - settledTheyPaidMe).toFixed(2);
-      const netVal = parseFloat(net);
-
-      myBalance += netVal;
-      if (netVal > 0) {
-        owedToMe += netVal;
-      } else if (netVal < 0) {
-        iOwe += Math.abs(netVal);
+      const balance = parseFloat(netBalances[member._id.toString()].toFixed(2));
+      if (balance < -0.01) {
+        debtors.push({ id: member._id.toString(), name: member.name, avatar: member.avatar, balance });
+      } else if (balance > 0.01) {
+        creditors.push({ id: member._id.toString(), name: member.name, avatar: member.avatar, balance });
       }
-
-      balances.push({
-        user_id: member._id,
-        name: member.name,
-        avatar: member.avatar,
-        balance: netVal,
-        they_owe_me: theyOweMe,
-        i_owe_them: iOweThem,
-      });
     }
+
+    // Sort to prioritize large debts
+    debtors.sort((a, b) => a.balance - b.balance); // most negative first
+    creditors.sort((a, b) => b.balance - a.balance); // most positive first
+
+    const simplifiedTransfers = [];
+    let dIdx = 0;
+    let cIdx = 0;
+
+    const dBalances = debtors.map(d => ({ ...d, balance: Math.abs(d.balance) }));
+    const cBalances = creditors.map(c => ({ ...c, balance: c.balance }));
+
+    while (dIdx < dBalances.length && cIdx < cBalances.length) {
+      const debtor = dBalances[dIdx];
+      const creditor = cBalances[cIdx];
+
+      const amount = Math.min(debtor.balance, creditor.balance);
+
+      simplifiedTransfers.push({
+        from: debtor.id,
+        from_name: debtor.name,
+        from_avatar: debtor.avatar,
+        to: creditor.id,
+        to_name: creditor.name,
+        to_avatar: creditor.avatar,
+        amount: parseFloat(amount.toFixed(2))
+      });
+
+      debtor.balance -= amount;
+      creditor.balance -= amount;
+
+      if (debtor.balance < 0.01) dIdx++;
+      if (creditor.balance < 0.01) cIdx++;
+    }
+
+    // Now format balances list for the logged-in user specifically
+    const userNet = parseFloat((netBalances[userId] || 0).toFixed(2));
+    let userOwed = 0;
+    let userOwe = 0;
+
+    const formattedBalances = house.members
+      .filter(m => m._id.toString() !== userId)
+      .map(member => {
+        const mId = member._id.toString();
+        
+        // Find if there is a simplified transfer involving this member and the logged-in user
+        let balanceValue = 0;
+
+        const payingToThem = simplifiedTransfers.find(t => t.from === userId && t.to === mId);
+        const theyOweMe = simplifiedTransfers.find(t => t.from === mId && t.to === userId);
+
+        if (payingToThem) {
+          balanceValue = -payingToThem.amount;
+          userOwe += payingToThem.amount;
+        } else if (theyOweMe) {
+          balanceValue = theyOweMe.amount;
+          userOwed += theyOweMe.amount;
+        }
+
+        return {
+          user_id: member._id,
+          name: member.name,
+          avatar: member.avatar,
+          balance: balanceValue
+        };
+      });
 
     return res.status(200).json({
       success: true,
-      my_balance: parseFloat(myBalance.toFixed(2)),
-      owed_to_me: parseFloat(owedToMe.toFixed(2)),
-      i_owe: parseFloat(iOwe.toFixed(2)),
-      balances
+      my_balance: userNet,
+      owed_to_me: parseFloat(userOwed.toFixed(2)),
+      i_owe: parseFloat(userOwe.toFixed(2)),
+      balances: formattedBalances
     });
   } catch (err) {
     console.error('[getBalances]', err);
@@ -210,11 +250,13 @@ async function getSettlements(req, res) {
     const userId = req.user.id;
     const houseId = await getUserHouseId(userId);
     if (!houseId) {
-      return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
+      return res.status(200).json({ success: true, settlements: [] });
     }
 
-    const settlements = await Settlement.find({ houseId })
-      .populate('paidBy', 'name').populate('paidTo', 'name').sort({ date: -1 });
+    const settlements = await Transaction.find({
+      houseId,
+      type: 'settlement'
+    }).populate('paidBy', 'name').populate('paidTo', 'name').sort({ date: -1, createdAt: -1 });
 
     return res.status(200).json({ success: true, settlements });
   } catch (err) {
@@ -236,22 +278,29 @@ async function createSettlement(req, res) {
 
     const { to_user, amount, note } = req.body;
 
-    const settlement = new Settlement({
+    if (!to_user) return res.status(400).json({ success: false, message: 'to_user is required.' });
+    if (!amount) return res.status(400).json({ success: false, message: 'amount is required.' });
+
+    const settlement = new Transaction({
       houseId,
+      type: 'settlement',
+      description: `Settled up balances`,
+      amount: Number(amount),
       paidBy: userId,
       paidTo: to_user,
-      amount: Number(amount),
-      note
+      notes: note,
+      status: 'paid'
     });
 
     await settlement.save();
 
-    await Payment.updateMany(
-      { paidBy: userId, paidTo: to_user, houseId, status: 'pending' },
-      { $set: { status: 'settled' } }
+    // Mark all pending transfers between them as completed
+    await Transaction.updateMany(
+      { paidBy: userId, paidTo: to_user, houseId, type: 'transfer', status: 'pending' },
+      { $set: { status: 'paid' } }
     );
 
-    const populated = await Settlement.findById(settlement._id)
+    const populated = await Transaction.findById(settlement._id)
       .populate('paidBy', 'name').populate('paidTo', 'name');
 
     return res.status(201).json({
@@ -266,18 +315,18 @@ async function createSettlement(req, res) {
 }
 
 /**
- * Mock methods for rent routes as rent records are deprecated in MongoDB version
+ * Mock methods for rent routes as rent records are deprecated
  */
 function getRentRecords(req, res) {
   return res.status(200).json({ success: true, rent_records: [] });
 }
 
 function createRentRecord(req, res) {
-  return res.status(400).json({ success: false, message: 'Rent records not supported in MongoDB version.' });
+  return res.status(400).json({ success: false, message: 'Rent records not supported.' });
 }
 
 function updateRentStatus(req, res) {
-  return res.status(400).json({ success: false, message: 'Rent records not supported in MongoDB version.' });
+  return res.status(400).json({ success: false, message: 'Rent records not supported.' });
 }
 
 module.exports = {
