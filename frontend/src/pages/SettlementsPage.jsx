@@ -266,37 +266,60 @@ export default function SettlementsPage() {
           </p>
         ) : (
           <div>
-            {settlements.map((s, idx) => (
-              <div
-                key={s._id || s.id || idx}
-                className="flex justify-between items-center"
-                style={{
-                  padding: '12px 16px',
-                  borderBottom: idx < settlements.length - 1 ? '1px solid var(--border-light)' : 'none'
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: 600 }}>
-                    {s.paidBy?.name || 'Roommate'} paid {s.paidTo?.name || 'Roommate'}
+            {settlements.map((s, idx) => {
+              const payerIdStr = (s.paidBy?._id || s.paidBy)?.toString();
+              const recipientIdStr = (s.paidTo?._id || s.paidTo)?.toString();
+              const myIdStr = (currentUserId || '').toString();
+
+              const isSender = payerIdStr && myIdStr && payerIdStr === myIdStr;
+              const isRecipient = recipientIdStr && myIdStr && recipientIdStr === myIdStr;
+              const canDelete = isSender || isRecipient;
+
+              let labelText = '';
+              if (isSender) {
+                labelText = `You paid ${s.paidTo?.name || 'Roommate'}`;
+              } else if (isRecipient) {
+                labelText = `Received from ${s.paidBy?.name || 'Roommate'}`;
+              } else {
+                labelText = `${s.paidBy?.name || 'Roommate'} paid ${s.paidTo?.name || 'Roommate'}`;
+              }
+
+              return (
+                <div
+                  key={s._id || s.id || idx}
+                  className="flex justify-between items-center"
+                  style={{
+                    padding: '12px 16px',
+                    borderBottom: idx < settlements.length - 1 ? '1px solid var(--border-light)' : 'none'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 600 }}>
+                      {labelText}
+                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      {formatDate(s.createdAt || s.date)}
+                    </span>
                   </div>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    {formatDate(s.createdAt || s.date)}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                      {formatCurrency(s.amount)}
+                    </span>
+                    {canDelete && (
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '4px 8px', color: 'var(--accent-red)' }}
+                        onClick={() => handleDeleteSettlement(s._id || s.id)}
+                        title="Delete settlement record"
+                      >
+                        🗑️ Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-green)' }}>
-                    {formatCurrency(s.amount)}
-                  </span>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    style={{ padding: '4px 8px', color: 'var(--accent-red)' }}
-                    onClick={() => handleDeleteSettlement(s._id || s.id)}
-                  >
-                    🗑️ Delete
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
+
 
           </div>
         )}

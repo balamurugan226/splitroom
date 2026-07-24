@@ -138,7 +138,15 @@ async function deletePayment(req, res) {
       return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
+    const payer = (tx.paidBy?._id || tx.paidBy)?.toString();
+    const recipient = (tx.paidTo?._id || tx.paidTo)?.toString();
+
+    if (payer !== userId && recipient !== userId) {
+      return res.status(403).json({ success: false, message: 'Only the person who paid, settled, or received this money can delete it.' });
+    }
+
     await Transaction.deleteOne({ _id: paymentId });
+
 
     return res.status(200).json({
       success: true,

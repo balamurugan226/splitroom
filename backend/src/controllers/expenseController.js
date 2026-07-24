@@ -286,11 +286,15 @@ async function deleteExpense(req, res) {
       return res.status(404).json({ success: false, message: 'Expense not found.' });
     }
     
-    if (expense.paidBy.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Only the person who paid can delete this expense.' });
+    const payer = (expense.paidBy?._id || expense.paidBy)?.toString();
+    const isSplitMember = expense.splitAmong?.some(s => (s.user?._id || s.user)?.toString() === userId.toString());
+
+    if (payer !== userId.toString() && !isSplitMember) {
+      return res.status(403).json({ success: false, message: 'Only roommates involved in this expense can delete it.' });
     }
 
     await Transaction.deleteOne({ _id: expenseId });
+
 
     return res.status(200).json({ success: true, message: 'Expense deleted successfully.' });
   } catch (err) {

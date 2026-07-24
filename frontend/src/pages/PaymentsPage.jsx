@@ -474,13 +474,17 @@ export default function PaymentsPage() {
                             Confirm Receipt of Funds
                           </button>
                         )}
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          style={{ color: 'var(--accent-red)' }}
-                          onClick={() => handleDeletePayment(p._id || p.id)}
-                        >
-                          🗑️ Delete
-                        </button>
+                        {(isSender || isRecipient) && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ color: 'var(--accent-red)' }}
+                            onClick={() => handleDeletePayment(p._id || p.id)}
+                            title="Delete this transfer record"
+                          >
+                            🗑️ Delete
+                          </button>
+                        )}
+
                       </div>
                     </div>
                   );

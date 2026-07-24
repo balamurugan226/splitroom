@@ -602,6 +602,12 @@ export default function DashboardPage() {
               let actionSummary = '';
               let badgeIcon = '💸';
 
+              const payerIdStr = (item.paidBy?._id || item.paidBy)?.toString();
+              const recipientIdStr = (item.paidTo?._id || item.paidTo)?.toString();
+              const myIdStr = (currentUserId || '').toString();
+              const isSplitMember = Array.isArray(item.splitAmong) && item.splitAmong.some(s => (s.user?._id || s.user)?.toString() === myIdStr);
+              const canDelete = payerIdStr === myIdStr || recipientIdStr === myIdStr || isSplitMember;
+
               if (item.feedType === 'expense') {
                 typeBadgeColor = 'badge-blue';
                 actionSummary = `${payerName} logged "${item.description}"`;
@@ -611,9 +617,6 @@ export default function DashboardPage() {
                 badgeIcon = item.feedType === 'settlement' ? '🤝' : '🔄';
 
                 const recipientName = item.paidTo?.name || 'Roommate';
-                const payerIdStr = (item.paidBy?._id || item.paidBy)?.toString();
-                const recipientIdStr = (item.paidTo?._id || item.paidTo)?.toString();
-                const myIdStr = (currentUserId || '').toString();
 
                 if (payerIdStr && myIdStr && payerIdStr === myIdStr) {
                   actionSummary = `You paid ${recipientName}`;
@@ -625,6 +628,8 @@ export default function DashboardPage() {
               }
 
               return (
+
+
                 <div
                   key={item._id || idx}
                   className="flex justify-between items-center"
@@ -655,14 +660,17 @@ export default function DashboardPage() {
                           Share: {formatCurrency(item.splitAmong?.find(s => s.user?._id?.toString() === currentUserId || s.user?.toString() === currentUserId)?.amount || 0)}
                         </span>
                       )}
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        style={{ padding: '2px 6px', fontSize: '10px', color: 'var(--accent-red)' }}
-                        onClick={() => handleDeleteFeedItem(item)}
-                        title="Delete record"
-                      >
-                        🗑️
-                      </button>
+                      {canDelete && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '2px 6px', fontSize: '10px', color: 'var(--accent-red)' }}
+                          onClick={() => handleDeleteFeedItem(item)}
+                          title="Delete record"
+                        >
+                          🗑️
+                        </button>
+                      )}
+
                     </div>
                   </div>
                 </div>
