@@ -749,7 +749,7 @@ export default function DashboardPage() {
                     >
                       <option value="">Select Roommate</option>
                       {members
-                        .filter(m => m._id !== currentUserId)
+                        .filter(m => (m._id?._id || m._id || m).toString() !== (currentUserId || '').toString())
                         .map(m => (
                           <option key={m._id} value={m._id}>
                             {m.name}
