@@ -9,6 +9,7 @@ import { jsPDF } from 'jspdf';
 export default function DashboardPage() {
   const { house, members, refreshHouse } = useHouse();
   const { user } = useAuth();
+  const currentUserId = user?.id || user?._id;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -32,7 +33,10 @@ export default function DashboardPage() {
   const [desc, setDesc] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('other');
-  const [paidBy, setPaidBy] = useState(currentUserId || '');
+  const [paidBy, setPaidBy] = useState('');
+  const [recipientId, setRecipientId] = useState('');
+  const [submittingAction, setSubmittingAction] = useState(false);
+
 
   const handleDeleteFeedItem = async (item) => {
     if (!window.confirm(`Delete this ${item.feedType} transaction? This will update room balances.`)) return;
