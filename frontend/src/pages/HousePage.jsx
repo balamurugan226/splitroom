@@ -211,13 +211,14 @@ export default function HousePage() {
 
   const shareInviteCode = () => {
     if (!house?.invite_code) return;
-    const text = `Hey! Join our flat room "${house.name}" on SplitRoom using my invite code: ${house.invite_code}`;
+    const text = `Hey! Join our flat room "${house.name}" on SplitMate using my invite code: ${house.invite_code}`;
     if (navigator.share) {
       navigator.share({
-        title: 'Join my flat on SplitRoom',
+        title: 'Join my flat on SplitMate',
         text: text,
       }).catch(err => console.error(err));
     } else {
+
       navigator.clipboard.writeText(text);
       setSuccess('Invite text copied! Paste it in WhatsApp to invite flatmates.');
       setTimeout(() => setSuccess(''), 4000);

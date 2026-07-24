@@ -59,10 +59,11 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    service: 'SplitRoom API',
+    service: 'SplitMate API',
     version: '1.0.0',
   });
 });
+
 
 // ---------------------------------------------------------------------------
 // Public routes

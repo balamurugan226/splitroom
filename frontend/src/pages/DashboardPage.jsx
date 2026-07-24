@@ -270,7 +270,7 @@ export default function DashboardPage() {
   // Export PDF Statement
   const exportPDFStatement = () => {
     const doc = new jsPDF();
-    const houseTitle = house?.name || 'SplitRoom Flat Statement';
+    const houseTitle = house?.name || 'SplitMate Flat Statement';
     const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
     doc.setFontSize(18);
@@ -306,7 +306,7 @@ export default function DashboardPage() {
 
   // Export Excel (.xlsx / .csv) Statement
   const exportExcelStatement = () => {
-    const houseTitle = house?.name || 'SplitRoom';
+    const houseTitle = house?.name || 'SplitMate';
     const sheetData = feed.map((item, idx) => ({
       '#': idx + 1,
       'Date': new Date(item.date || item.createdAt).toLocaleDateString('en-IN'),
@@ -341,8 +341,9 @@ export default function DashboardPage() {
         <div className="card text-center" style={{ padding: '40px 20px' }}>
           <span style={{ fontSize: '48px' }}>🏠</span>
           <h2 style={{ fontSize: '22px', fontWeight: 800, marginTop: '16px', marginBottom: '8px' }}>
-            Welcome to SplitRoom!
+            Welcome to SplitMate!
           </h2>
+
           <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '24px', maxWidth: '400px', margin: '0 auto 24px' }}>
             You are not connected to a virtual flat room yet. Create a new room or join your roommates with an invite code.
           </p>

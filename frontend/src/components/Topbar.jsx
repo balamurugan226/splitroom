@@ -13,8 +13,9 @@ export default function Topbar() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => navigate('/dashboard')}>
           <span style={{ fontSize: 20 }}>🏠</span>
-          <span className="topbar-title">SplitRoom</span>
+          <span className="topbar-title">SplitMate</span>
         </div>
+
 
         {allHouses && allHouses.length > 1 && (
           <select

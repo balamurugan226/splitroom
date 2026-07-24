@@ -46,8 +46,9 @@ export default function LoginPage() {
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
           <span style={{ fontSize: '40px' }}>🏠</span>
           <h1 style={{ fontSize: '24px', fontWeight: 800, marginTop: '8px', color: 'var(--text-primary)' }}>
-            Welcome to SplitRoom
+            Welcome to SplitMate
           </h1>
+
           <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginTop: '4px' }}>
             Sign in to manage your house budget
           </p>
