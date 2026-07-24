@@ -46,7 +46,21 @@ export default function SettlementsPage() {
     fetchData();
   }, [fetchData]);
 
+  const handleDeleteSettlement = async (id) => {
+    if (!window.confirm('Delete this settlement record? This will adjust roommate balances.')) return;
+    try {
+      setError('');
+      await paymentAPI.deletePayment(id);
+      setSuccess('Settlement record deleted.');
+      sendPushNotification('Settlement Removed 🗑️', 'Settlement record was deleted.');
+      fetchData();
+    } catch (err) {
+      setError('Failed to delete settlement record.');
+    }
+  };
+
   const handleSubmitSettlement = async (e) => {
+
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -269,11 +283,21 @@ export default function SettlementsPage() {
                     {formatDate(s.createdAt || s.date)}
                   </span>
                 </div>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-green)' }}>
-                  {formatCurrency(s.amount)}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-green)' }}>
+                    {formatCurrency(s.amount)}
+                  </span>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ padding: '4px 8px', color: 'var(--accent-red)' }}
+                    onClick={() => handleDeleteSettlement(s._id || s.id)}
+                  >
+                    🗑️ Delete
+                  </button>
+                </div>
               </div>
             ))}
+
           </div>
         )}
       </div>

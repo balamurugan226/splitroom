@@ -116,9 +116,43 @@ async function markPaid(req, res) {
 }
 
 /**
+ * DELETE /api/payments/:id
+ * Allows any house roommate to delete a transfer or settlement record
+ */
+async function deletePayment(req, res) {
+  try {
+    const userId = req.user.id.toString();
+    const paymentId = req.params.id;
+
+    const houseId = await getUserHouseId(userId);
+    if (!houseId) {
+      return res.status(403).json({ success: false, message: 'You are not a member of any house.' });
+    }
+
+    const tx = await Transaction.findById(paymentId);
+    if (!tx) {
+      return res.status(404).json({ success: false, message: 'Transaction record not found.' });
+    }
+
+    if (tx.houseId.toString() !== houseId.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    await Transaction.deleteOne({ _id: paymentId });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Transaction record deleted successfully.'
+    });
+  } catch (err) {
+    console.error('[deletePayment]', err);
+    return res.status(500).json({ success: false, message: 'Server error.', error: err.message });
+  }
+}
+
+/**
  * GET /api/payments/balances
  * Calculates exact pair-wise roommate balances for absolute precision.
- * Payment from X to Y reduces X's debt to Y directly without affecting third parties (e.g. house owner).
  */
 async function getBalances(req, res) {
   try {
@@ -135,8 +169,6 @@ async function getBalances(req, res) {
 
     const transactions = await Transaction.find({ houseId });
 
-    // Initialize pairwise balance matrix for all house members
-    // pairwise[m1][m2] represents the net amount m2 owes m1
     const pairwise = {};
     house.members.forEach(m1 => {
       const id1 = m1._id.toString();
@@ -159,7 +191,6 @@ async function getBalances(req, res) {
             const splitUserId = (s.user?._id || s.user)?.toString();
             if (splitUserId && splitUserId !== payerId && pairwise[payerId][splitUserId] !== undefined) {
               const shareAmt = Number(s.amount || 0);
-              // splitUserId owes payerId shareAmt
               pairwise[payerId][splitUserId] += shareAmt;
               pairwise[splitUserId][payerId] -= shareAmt;
             }
@@ -168,15 +199,14 @@ async function getBalances(req, res) {
       } else if (tx.type === 'transfer' || tx.type === 'settlement') {
         const recipientId = (tx.paidTo?._id || tx.paidTo)?.toString();
         if (recipientId && recipientId !== payerId && pairwise[payerId] && pairwise[payerId][recipientId] !== undefined) {
-          // payerId paid money to recipientId -> recipientId owes payerId less (or payerId owes recipientId less)
           pairwise[payerId][recipientId] += amt;
           pairwise[recipientId][payerId] -= amt;
         }
       }
     });
 
-    let userOwed = 0; // Total amount owed TO logged-in user
-    let userOwe = 0;  // Total amount logged-in user OWES to others
+    let userOwed = 0;
+    let userOwe = 0;
 
     const formattedBalances = house.members
       .filter(m => m._id.toString() !== userId)
@@ -194,7 +224,7 @@ async function getBalances(req, res) {
           user_id: member._id,
           name: member.name,
           avatar: member.avatar,
-          balance: netValue // positive = they owe logged-in user, negative = logged-in user owes them
+          balance: netValue
         };
       });
 
@@ -303,6 +333,7 @@ module.exports = {
   getPayments,
   createPayment,
   markPaid,
+  deletePayment,
   getBalances,
   getSettlements,
   createSettlement,

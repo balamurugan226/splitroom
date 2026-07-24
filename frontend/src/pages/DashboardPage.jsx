@@ -32,10 +32,27 @@ export default function DashboardPage() {
   const [desc, setDesc] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('other');
-  const [recipientId, setRecipientId] = useState('');
-  const [submittingAction, setSubmittingAction] = useState(false);
+  const [paidBy, setPaidBy] = useState(currentUserId || '');
 
-  const currentUserId = user?.id || user?._id;
+  const handleDeleteFeedItem = async (item) => {
+    if (!window.confirm(`Delete this ${item.feedType} transaction? This will update room balances.`)) return;
+    try {
+      setError('');
+      if (item.feedType === 'expense') {
+        await expenseAPI.deleteExpense(item._id);
+      } else {
+        await paymentAPI.deletePayment(item._id);
+      }
+      setSuccess(`${item.feedType} transaction deleted.`);
+      sendPushNotification('Transaction Removed 🗑️', `${item.feedType} record deleted.`);
+      fetchDashboardData();
+    } catch (err) {
+      setError('Failed to delete transaction.');
+    }
+  };
+
+  // Unified Activity Feed rendering helper
+
 
   // Offline queue checker
   const syncOfflineTransactions = useCallback(async () => {
@@ -171,7 +188,8 @@ export default function DashboardPage() {
         description: desc.trim(),
         amount: amt,
         category,
-        paid_by: currentUserId,
+        paid_by: paidBy || currentUserId,
+
         member_ids: members.map(m => m._id) // default splits equally with everyone
       };
     } else {
@@ -588,16 +606,22 @@ export default function DashboardPage() {
                 typeBadgeColor = 'badge-blue';
                 actionSummary = `${payerName} logged "${item.description}"`;
                 badgeIcon = '💸';
-              } else if (item.feedType === 'transfer') {
-                typeBadgeColor = 'badge-purple';
+              } else if (item.feedType === 'transfer' || item.feedType === 'settlement') {
+                typeBadgeColor = item.feedType === 'settlement' ? 'badge-green' : 'badge-purple';
+                badgeIcon = item.feedType === 'settlement' ? '🤝' : '🔄';
+
                 const recipientName = item.paidTo?.name || 'Roommate';
-                actionSummary = `${payerName} sent money to ${recipientName}`;
-                badgeIcon = '🔄';
-              } else if (item.feedType === 'settlement') {
-                typeBadgeColor = 'badge-green';
-                const recipientName = item.paidTo?.name || 'Roommate';
-                actionSummary = `${payerName} settled up with ${recipientName}`;
-                badgeIcon = '🤝';
+                const payerIdStr = (item.paidBy?._id || item.paidBy)?.toString();
+                const recipientIdStr = (item.paidTo?._id || item.paidTo)?.toString();
+                const myIdStr = (currentUserId || '').toString();
+
+                if (payerIdStr && myIdStr && payerIdStr === myIdStr) {
+                  actionSummary = `You paid ${recipientName}`;
+                } else if (recipientIdStr && myIdStr && recipientIdStr === myIdStr) {
+                  actionSummary = `Received from ${payerName}`;
+                } else {
+                  actionSummary = `${payerName} paid ${recipientName}`;
+                }
               }
 
               return (
@@ -609,7 +633,7 @@ export default function DashboardPage() {
                     borderBottom: idx < feed.length - 1 ? '1px solid var(--border-light)' : 'none'
                   }}
                 >
-                  <div>
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span className={`badge ${typeBadgeColor}`} style={{ padding: '2px 6px', fontSize: '10px' }}>
                         {badgeIcon} {item.feedType}
@@ -623,17 +647,28 @@ export default function DashboardPage() {
                       {formatTimeAgo(item.date || item.createdAt)}
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
+                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                     <div style={{ fontSize: '14px', fontWeight: 700 }}>{formattedAmt}</div>
-                    {item.feedType === 'expense' && (
-                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                        Share: {formatCurrency(item.splitAmong?.find(s => s.user?._id?.toString() === currentUserId || s.user?.toString() === currentUserId)?.amount || 0)}
-                      </span>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {item.feedType === 'expense' && (
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                          Share: {formatCurrency(item.splitAmong?.find(s => s.user?._id?.toString() === currentUserId || s.user?.toString() === currentUserId)?.amount || 0)}
+                        </span>
+                      )}
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '2px 6px', fontSize: '10px', color: 'var(--accent-red)' }}
+                        onClick={() => handleDeleteFeedItem(item)}
+                        title="Delete record"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
             })}
+
           </div>
         )}
       </div>
@@ -736,6 +771,23 @@ export default function DashboardPage() {
                       ))}
                     </select>
                   </div>
+
+                  <div className="form-group">
+                    <label className="label">Paid By (Who paid this bill?) *</label>
+                    <select
+                      className="select"
+                      value={paidBy || currentUserId}
+                      onChange={(e) => setPaidBy(e.target.value)}
+                      required
+                    >
+                      {members.map(m => (
+                        <option key={m._id} value={m._id}>
+                          {m.name} {m._id?.toString() === currentUserId?.toString() ? '(You)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                 </>
               ) : (
                 <>

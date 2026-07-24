@@ -159,6 +159,19 @@ export default function PaymentsPage() {
     }
   };
 
+  const handleDeletePayment = async (id) => {
+    if (!window.confirm('Delete this transfer record? This will update roommate balances.')) return;
+    try {
+      setError('');
+      await paymentAPI.deletePayment(id);
+      setSuccess('Transfer record deleted.');
+      sendPushNotification('Transfer Removed 🗑️', 'Transfer record was deleted.');
+      fetchData();
+    } catch (err) {
+      setError('Failed to delete transfer record.');
+    }
+  };
+
   if (!house) {
     return (
       <div className="container" style={{ paddingTop: '40px' }}>
@@ -413,17 +426,28 @@ export default function PaymentsPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {payments.map((p) => {
-                  const payerId = p.paidBy?._id || p.paidBy;
-                  const recipientId = p.paidTo?._id || p.paidTo;
-                  const isRecipient = recipientId && currentUserId && recipientId.toString() === currentUserId.toString();
-                  const isSender = payerId && currentUserId && payerId.toString() === currentUserId.toString();
+                  const payerIdStr = (p.paidBy?._id || p.paidBy)?.toString();
+                  const recipientIdStr = (p.paidTo?._id || p.paidTo)?.toString();
+                  const myIdStr = (currentUserId || '').toString();
+
+                  const isSender = payerIdStr && myIdStr && payerIdStr === myIdStr;
+                  const isRecipient = recipientIdStr && myIdStr && recipientIdStr === myIdStr;
+
+                  let titleText = '';
+                  if (isSender) {
+                    titleText = `Paid to ${p.paidTo?.name || 'Roommate'}`;
+                  } else if (isRecipient) {
+                    titleText = `Received from ${p.paidBy?.name || 'Roommate'}`;
+                  } else {
+                    titleText = `${p.paidBy?.name || 'Roommate'} paid ${p.paidTo?.name || 'Roommate'}`;
+                  }
 
                   return (
                     <div key={p._id || p.id} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                       <div className="flex justify-between items-center">
                         <div>
                           <div style={{ fontSize: '14px', fontWeight: 700 }}>
-                            {isSender ? `Paid to ${p.paidTo?.name || 'Roommate'}` : `Received from ${p.paidBy?.name || 'Roommate'}`}
+                            {titleText}
                           </div>
                           {p.note && <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{p.note}</div>}
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -440,15 +464,24 @@ export default function PaymentsPage() {
                         </div>
                       </div>
 
-                      {isRecipient && p.status !== 'paid' && (
+                      <div style={{ display: 'flex', gap: 8, marginTop: '4px' }}>
+                        {isRecipient && p.status !== 'paid' && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ flex: 1 }}
+                            onClick={() => handleMarkPaymentReceived(p._id || p.id)}
+                          >
+                            Confirm Receipt of Funds
+                          </button>
+                        )}
                         <button
                           className="btn btn-secondary btn-sm"
-                          style={{ marginTop: '8px', width: '100%' }}
-                          onClick={() => handleMarkPaymentReceived(p._id || p.id)}
+                          style={{ color: 'var(--accent-red)' }}
+                          onClick={() => handleDeletePayment(p._id || p.id)}
                         >
-                          Confirm Receipt of Funds
+                          🗑️ Delete
                         </button>
-                      )}
+                      </div>
                     </div>
                   );
                 })}
@@ -460,3 +493,4 @@ export default function PaymentsPage() {
     </div>
   );
 }
+

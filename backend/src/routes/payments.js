@@ -6,6 +6,7 @@ const {
   getPayments,
   createPayment,
   markPaid,
+  deletePayment,
   getBalances,
   getSettlements,
   createSettlement,
@@ -29,5 +30,6 @@ router.post('/settlements', createSettlement);
 router.get('/', getPayments);
 router.post('/', createPayment);
 router.put('/:id/mark-paid', markPaid);
+router.delete('/:id', deletePayment);
 
 module.exports = router;

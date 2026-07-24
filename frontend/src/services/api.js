@@ -106,4 +106,6 @@ export const paymentAPI = {
     api.put(`/payments/rent/${id}`, { status }),
   getSettlements: () => api.get('/payments/settlements'),
   createSettlement: (data) => api.post('/payments/settlements', data),
+  deletePayment: (id) => api.delete(`/payments/${id}`),
 };
+
