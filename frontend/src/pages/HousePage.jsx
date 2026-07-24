@@ -94,9 +94,7 @@ export default function HousePage() {
 
   const handleLeaveHouse = async () => {
     if (!house) return;
-    const confirmMsg = house.user_role === 'owner' 
-      ? 'WARNING: You are the owner. Leaving will transfer ownership or remove members. Continue?'
-      : 'Are you sure you want to leave this house?';
+    const confirmMsg = 'Are you sure you want to leave this house?';
     if (!window.confirm(confirmMsg)) return;
 
     try {
@@ -271,10 +269,8 @@ export default function HousePage() {
     );
   }
 
-  // Render when user HAS a house
-  const isOwner = house.user_role === 'owner';
-  const isAdmin = house.user_role === 'admin';
-  const canModify = isOwner || isAdmin;
+  // All members are equal roommates
+  const canModify = true;
 
   return (
     <div className="container">

@@ -24,24 +24,18 @@ export function HouseProvider({ children }) {
       const currentHouse = houses && houses.length > 0 ? houses[0] : null;
 
       if (currentHouse) {
-        // Compute user_role by comparing createdBy with logged-in user
-        const createdById = currentHouse.createdBy?._id || currentHouse.createdBy;
-        const userId = user.id || user._id;
-        currentHouse.user_role = (createdById && createdById.toString() === userId.toString()) ? 'owner' : 'member';
-
+        currentHouse.user_role = 'roommate';
         setHouse(currentHouse);
 
-        // Use _id (MongoDB) for the API call
         const houseId = currentHouse._id;
         try {
           const membersRes = await houseAPI.getMembers(houseId);
           setMembers(membersRes.data.members || []);
         } catch {
-          // If getMembers fails, use the populated members from getMyHouse
           if (currentHouse.members && currentHouse.members.length > 0) {
             setMembers(currentHouse.members.map(m => ({
               ...m,
-              role: (m._id && m._id.toString() === (createdById && createdById.toString())) ? 'owner' : 'member',
+              role: 'roommate',
             })));
           } else {
             setMembers([]);

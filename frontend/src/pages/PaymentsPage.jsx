@@ -30,7 +30,7 @@ export default function PaymentsPage() {
   const [paymentNotes, setPaymentNotes] = useState('');
   const [creatingPayment, setCreatingPayment] = useState(false);
 
-  const isOwnerOrAdmin = house?.user_role === 'owner' || house?.user_role === 'admin';
+  const isOwnerOrAdmin = true; // All members are equal roommates
   const currentUserId = user?.id || user?._id;
 
   const fetchData = useCallback(async () => {

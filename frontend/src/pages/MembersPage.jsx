@@ -12,23 +12,7 @@ export default function MembersPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const isOwnerOrAdmin = house?.user_role === 'owner' || house?.user_role === 'admin';
-
-  const handleRoleChange = async (memberId, newRole) => {
-    if (!house) return;
-    try {
-      setLoading(true);
-      setError('');
-      setSuccess('');
-      await houseAPI.updateMemberRole(house._id, memberId, newRole);
-      setSuccess('Roommate role updated successfully!');
-      await refreshHouse();
-    } catch (err) {
-      setError(err?.response?.data?.message || 'Failed to update member role.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const currentUserId = (user?.id || user?._id || '').toString();
 
   const handleRemoveMember = async (memberId, memberName) => {
     if (!house) return;
@@ -70,8 +54,8 @@ export default function MembersPage() {
   return (
     <div className="container">
       <div className="card-header" style={{ borderBottom: 'none', paddingBottom: 0, marginBottom: '16px' }}>
-        <h2 style={{ fontSize: '18px', fontWeight: 700 }}>House Members</h2>
-        <span className="badge badge-blue">{members.length} Total</span>
+        <h2 style={{ fontSize: '18px', fontWeight: 700 }}>House Roommates</h2>
+        <span className="badge badge-blue">{members.length} Roommates</span>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
@@ -79,10 +63,8 @@ export default function MembersPage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {members.map((member) => {
-          const memberId = member._id;
-          const isSelf = memberId === (user?.id || user?._id);
-          const isOwner = member.role === 'owner';
-          const canManage = isOwnerOrAdmin && !isSelf && !isOwner;
+          const memberId = (member._id?._id || member._id || member).toString();
+          const isSelf = memberId === currentUserId;
 
           return (
             <div key={memberId} className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 12 }}>
@@ -96,8 +78,8 @@ export default function MembersPage() {
                     <span style={{ fontSize: '14px', fontWeight: 700 }}>
                       {member.name} {isSelf && '(You)'}
                     </span>
-                    <span className={`badge ${isOwner ? 'badge-red' : member.role === 'admin' ? 'badge-orange' : 'badge-blue'}`}>
-                      {member.role}
+                    <span className="badge badge-blue">
+                      roommate
                     </span>
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
@@ -111,34 +93,19 @@ export default function MembersPage() {
                 </div>
               </div>
 
-              {/* Actions row */}
-              {canManage && (
+              {/* Actions row for removing inactive roommate */}
+              {!isSelf && (
                 <div 
-                  className="flex justify-between items-center" 
+                  className="flex justify-end items-center" 
                   style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '4px' }}
                 >
-                  <div className="flex items-center gap-2">
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                      Change Role:
-                    </span>
-                    <select
-                      className="select"
-                      style={{ width: 'auto', padding: '4px 8px', fontSize: '12px' }}
-                      value={member.role}
-                      onChange={(e) => handleRoleChange(memberId, e.target.value)}
-                      disabled={loading}
-                    >
-                      <option value="member">Member</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </div>
                   <button
                     className="btn btn-danger btn-sm"
                     style={{ padding: '4px 10px', fontSize: '12px' }}
                     onClick={() => handleRemoveMember(memberId, member.name)}
                     disabled={loading}
                   >
-                    Remove
+                    Remove Roommate
                   </button>
                 </div>
               )}

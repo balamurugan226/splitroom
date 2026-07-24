@@ -81,6 +81,7 @@ async function getMyHouse(req, res) {
     const formattedHouses = houses.map(h => {
       const obj = h.toObject();
       obj.member_count = obj.members.length;
+      obj.user_role = 'roommate';
       return obj;
     });
 
@@ -106,6 +107,7 @@ async function getHouseById(req, res) {
 
     const obj = house.toObject();
     obj.member_count = obj.members.length;
+    obj.user_role = 'roommate';
 
     return res.status(200).json({
       success: true,
@@ -129,10 +131,6 @@ async function updateHouse(req, res) {
     const house = await House.findOne({ _id: houseId, members: userId });
     if (!house) {
       return res.status(404).json({ success: false, message: 'House not found or you are not a member.' });
-    }
-
-    if (house.createdBy.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Only owner can update the house.' });
     }
 
     if (name) house.name = name.trim();
@@ -170,7 +168,6 @@ async function joinHouse(req, res) {
       return res.status(404).json({ success: false, message: 'Invalid invite code. House not found.' });
     }
 
-    // Fix: use .some() with .toString() for proper ObjectId comparison
     if (house.members.some(m => m.toString() === userId)) {
       return res.status(409).json({ success: false, message: 'You are already a member of this house.' });
     }
@@ -204,16 +201,8 @@ async function leaveHouse(req, res) {
       return res.status(404).json({ success: false, message: 'House not found.' });
     }
 
-    // Fix: use .some() with .toString() for proper ObjectId comparison
     if (!house.members.some(m => m.toString() === userId)) {
       return res.status(404).json({ success: false, message: 'You are not a member of this house.' });
-    }
-
-    if (house.createdBy.toString() === userId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Owner cannot leave the house. Transfer ownership or delete the house first.',
-      });
     }
 
     house.members = house.members.filter(m => m.toString() !== userId);
@@ -244,7 +233,7 @@ async function getHouseMembers(req, res) {
 
     const members = house.members.map(m => {
       const obj = m.toObject();
-      obj.role = house.createdBy.toString() === m._id.toString() ? 'owner' : 'member';
+      obj.role = 'roommate';
       return obj;
     });
 
@@ -272,17 +261,13 @@ async function removeMember(req, res) {
     if (!house) {
       return res.status(403).json({ success: false, message: 'You are not a member of this house.' });
     }
-    if (house.createdBy.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Only owner can remove members.' });
-    }
 
-    // Fix: use .some() with .toString() for proper ObjectId comparison
     if (!house.members.some(m => m.toString() === targetUserId)) {
       return res.status(404).json({ success: false, message: 'Member not found in this house.' });
     }
 
-    if (house.createdBy.toString() === targetUserId) {
-      return res.status(400).json({ success: false, message: 'Cannot remove the owner of the house.' });
+    if (targetUserId === userId.toString()) {
+      return res.status(400).json({ success: false, message: 'Use leave house option to leave.' });
     }
 
     house.members = house.members.filter(m => m.toString() !== targetUserId);
@@ -302,12 +287,7 @@ async function removeMember(req, res) {
  * PUT /api/houses/:id/members/:memberId/role
  */
 async function updateMemberRole(req, res) {
-  try {
-    return res.status(400).json({ success: false, message: 'Roles are simplified in this version.' });
-  } catch (err) {
-    console.error('[updateMemberRole]', err);
-    return res.status(500).json({ success: false, message: 'Server error.', error: err.message });
-  }
+  return res.status(200).json({ success: true, message: 'All members are equal roommates.' });
 }
 
 /**
@@ -321,9 +301,6 @@ async function regenerateInviteCode(req, res) {
     const house = await House.findOne({ _id: houseId, members: userId });
     if (!house) {
       return res.status(403).json({ success: false, message: 'You are not a member of this house.' });
-    }
-    if (house.createdBy.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Only owner can regenerate the invite code.' });
     }
 
     const newCode = await uniqueInviteCode();
