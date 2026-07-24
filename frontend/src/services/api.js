@@ -78,7 +78,13 @@ export const houseAPI = {
   getNotices: () => api.get('/houses/notices'),
   createNotice: (data) => api.post('/houses/notices', data),
   deleteNotice: (id) => api.delete(`/houses/notices/${id}`),
+
+  // Guest / Visitor Stay Tracker
+  getGuests: () => api.get('/houses/guests'),
+  addGuest: (data) => api.post('/houses/guests', data),
+  deleteGuest: (id) => api.delete(`/houses/guests/${id}`),
 };
+
 
 // ---------- Expense ----------
 export const expenseAPI = {

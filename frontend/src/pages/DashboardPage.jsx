@@ -5,6 +5,7 @@ import { expenseAPI, paymentAPI, houseAPI } from '../services/api';
 import { formatCurrency, formatTimeAgo, getCategoryInfo, EXPENSE_CATEGORIES } from '../utils/formatters';
 import { sendPushNotification } from '../utils/notifications';
 import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
 
 export default function DashboardPage() {
   const { house, members, refreshHouse } = useHouse();
@@ -20,9 +21,12 @@ export default function DashboardPage() {
   const [balances, setBalances] = useState(null);
   const [notices, setNotices] = useState([]);
 
+  // Filter state for Activity Feed (Log)
+  const [logFilter, setLogFilter] = useState('all'); // 'all' | 'expense' | 'transfer' | 'settlement'
+
   // Notice board inputs
   const [newNoticeText, setNewNoticeText] = useState('');
-  const [newNoticeColor, setNewNoticeColor] = useState('#fffbeb'); // default HSL yellow
+  const [newNoticeColor, setNewNoticeColor] = useState('#fffbeb');
   const [postingNotice, setPostingNotice] = useState(false);
 
   // Unified Action Modal state
@@ -35,28 +39,12 @@ export default function DashboardPage() {
   const [category, setCategory] = useState('other');
   const [paidBy, setPaidBy] = useState('');
   const [recipientId, setRecipientId] = useState('');
-  const [submittingAction, setSubmittingAction] = useState(false);
 
+  // Receipt Image Preview Modal
+  const [previewImage, setPreviewImage] = useState(null);
 
-  const handleDeleteFeedItem = async (item) => {
-    if (!window.confirm(`Delete this ${item.feedType} transaction? This will update room balances.`)) return;
-    try {
-      setError('');
-      if (item.feedType === 'expense') {
-        await expenseAPI.deleteExpense(item._id);
-      } else {
-        await paymentAPI.deletePayment(item._id);
-      }
-      setSuccess(`${item.feedType} transaction deleted.`);
-      sendPushNotification('Transaction Removed 🗑️', `${item.feedType} record deleted.`);
-      fetchDashboardData();
-    } catch (err) {
-      setError('Failed to delete transaction.');
-    }
-  };
-
-  // Unified Activity Feed rendering helper
-
+  // Dynamic UPI QR Modal state
+  const [upiModalData, setUpiModalData] = useState(null);
 
   // Offline queue checker
   const syncOfflineTransactions = useCallback(async () => {
@@ -84,11 +72,8 @@ export default function DashboardPage() {
     }
 
     localStorage.removeItem('splitroom_offline_queue');
-    if (successCount > 0) {
-      setSuccess(`Successfully synced ${successCount} offline logs!`);
-      sendPushNotification('Synced Offline Logs 🔄', `Restored ${successCount} updates to the house cloud.`);
-      fetchDashboardData();
-    }
+    setSuccess(`Synced ${successCount} offline updates!`);
+    setTimeout(() => setSuccess(''), 4000);
   }, []);
 
   const fetchDashboardData = useCallback(async () => {
@@ -96,11 +81,11 @@ export default function DashboardPage() {
       setLoading(false);
       return;
     }
+
     try {
       setLoading(true);
       setError('');
 
-      // Check and sync any offline queue items
       await syncOfflineTransactions();
 
       const [expensesRes, balancesRes, noticesRes] = await Promise.all([
@@ -113,14 +98,12 @@ export default function DashboardPage() {
       const balancesData = balancesRes.data || {};
       const noticesData = noticesRes.data.notices || noticesRes.data || [];
 
-      // Unified Activity Feed: Fetch payments too to merge them
       const payRes = await paymentAPI.getPayments();
       const paymentsData = payRes.data.payments || payRes.data || [];
 
       const setRes = await paymentAPI.getSettlements();
       const settlementsData = setRes.data.settlements || setRes.data || [];
 
-      // Combine and sort all transactions into one master list
       const combined = [
         ...expensesData.map(e => ({ ...e, feedType: 'expense' })),
         ...paymentsData.map(p => ({ ...p, feedType: 'transfer' })),
@@ -146,15 +129,29 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchDashboardData();
-    
-    // Add online status change event listeners
     window.addEventListener('online', syncOfflineTransactions);
     return () => {
       window.removeEventListener('online', syncOfflineTransactions);
     };
   }, [fetchDashboardData, syncOfflineTransactions]);
 
-  // Total household spending calculated from category segments
+  const handleDeleteFeedItem = async (item) => {
+    if (!window.confirm(`Delete this ${item.feedType} transaction? This will update room balances.`)) return;
+    try {
+      setError('');
+      if (item.feedType === 'expense') {
+        await expenseAPI.deleteExpense(item._id);
+      } else {
+        await paymentAPI.deletePayment(item._id);
+      }
+      setSuccess(`${item.feedType} transaction deleted.`);
+      sendPushNotification('Transaction Removed 🗑️', `${item.feedType} record deleted.`);
+      fetchDashboardData();
+    } catch (err) {
+      setError('Failed to delete transaction.');
+    }
+  };
+
   const categorySummary = useMemo(() => {
     const totals = {};
     let grandTotal = 0;
@@ -170,7 +167,6 @@ export default function DashboardPage() {
     return { totals, grandTotal };
   }, [feed]);
 
-  // Handle logging transaction (offline-ready)
   const handleLogAction = async (e) => {
     e.preventDefault();
     setError('');
@@ -193,8 +189,7 @@ export default function DashboardPage() {
         amount: amt,
         category,
         paid_by: paidBy || currentUserId,
-
-        member_ids: members.map(m => m._id) // default splits equally with everyone
+        member_ids: members.map(m => m._id)
       };
     } else {
       if (!recipientId) {
@@ -208,7 +203,6 @@ export default function DashboardPage() {
       };
     }
 
-    // Offline caching trigger
     if (!navigator.onLine) {
       const queue = JSON.parse(localStorage.getItem('splitroom_offline_queue') || '[]');
       queue.push({ type: activeActionTab, payload });
@@ -217,400 +211,380 @@ export default function DashboardPage() {
       setSuccess('Device is offline. Saved transaction locally!');
       sendPushNotification('Logged Offline 📴', 'Will sync when internet is back.');
       setShowActionModal(false);
-      
-      // Reset forms
       setDesc('');
       setAmount('');
-      setRecipientId('');
       return;
     }
 
     try {
-      setSubmittingAction(true);
       if (activeActionTab === 'expense') {
         await expenseAPI.addExpense(payload);
-        setSuccess('Expense added successfully!');
-        sendPushNotification('Bill Logged 💸', `Shared expense for ${desc} of ${formatCurrency(amt)}.`);
+        setSuccess('Expense logged successfully!');
+        sendPushNotification('New Bill Added 💸', `${user?.name || 'Roommate'} logged ${desc.trim()} (₹${amt})`);
       } else if (activeActionTab === 'transfer') {
         await paymentAPI.createPayment(payload);
-        setSuccess('Transfer logged successfully!');
-        sendPushNotification('Transfer Sent 🔄', `Logged transfer of ${formatCurrency(amt)}.`);
+        setSuccess('Payment recorded successfully!');
+        sendPushNotification('Payment Recorded 🔄', `Transfer of ₹${amt} logged.`);
       } else if (activeActionTab === 'settlement') {
         await paymentAPI.createSettlement(payload);
-        setSuccess('Settle up recorded successfully!');
-        sendPushNotification('Debt Settled 🤝', `Zeroed out balances of ${formatCurrency(amt)}.`);
+        setSuccess('Settlement created successfully!');
+        sendPushNotification('Balances Settled 🤝', `Settlement of ₹${amt} recorded.`);
       }
 
+      setShowActionModal(false);
       setDesc('');
       setAmount('');
-      setRecipientId('');
-      setShowActionModal(false);
       fetchDashboardData();
     } catch (err) {
-      setError(err?.response?.data?.message || 'Failed to submit action.');
-    } finally {
-      setSubmittingAction(false);
+      setError(err?.response?.data?.message || 'Failed to complete transaction.');
     }
   };
 
-  // Sticky Notes logic
   const handlePostNotice = async (e) => {
     e.preventDefault();
     if (!newNoticeText.trim()) return;
-
     try {
       setPostingNotice(true);
-      await houseAPI.createNotice({
-        content: newNoticeText.trim(),
-        color: newNoticeColor
-      });
+      setError('');
+      await houseAPI.createNotice({ text: newNoticeText.trim(), color: newNoticeColor });
       setNewNoticeText('');
-      fetchDashboardData();
+      const res = await houseAPI.getNotices();
+      setNotices(res.data.notices || res.data || []);
+      setSuccess('Sticky note pinned!');
     } catch (err) {
-      setError('Could not post sticky note.');
+      setError('Could not pin note.');
     } finally {
       setPostingNotice(false);
     }
   };
 
-  const handleClearNotice = async (id) => {
+  const handleDeleteNotice = async (id) => {
     try {
       await houseAPI.deleteNotice(id);
-      fetchDashboardData();
-    } catch (err) {
-      setError('Could not remove notice.');
+      setNotices(prev => prev.filter(n => n._id !== id));
+    } catch {
+      setError('Failed to delete note.');
     }
   };
 
-  // One-Click PDF statement download
-  const handleDownloadPDF = () => {
+  // Export PDF Statement
+  const exportPDFStatement = () => {
     const doc = new jsPDF();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.text(`${house.name} - Room Account Statement`, 14, 20);
+    const houseTitle = house?.name || 'SplitRoom Flat Statement';
+    const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
+    doc.setFontSize(18);
+    doc.text(houseTitle, 14, 20);
     doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-IN')}`, 14, 28);
-    doc.line(14, 32, 196, 32);
+    doc.text(`Generated on ${dateStr}`, 14, 26);
 
-    // Balances summary
+    let startY = 36;
     doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Roommate Balance Sheet", 14, 42);
+    doc.text('Unified Activity Log', 14, startY);
+    startY += 6;
 
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    let y = 50;
-    (balances?.balances || []).forEach(b => {
-      const isOwed = b.balance > 0;
-      doc.text(`${b.name}: ${isOwed ? 'Owed +' : 'Owes -'} Rs. ${Math.abs(b.balance).toFixed(2)}`, 20, y);
-      y += 8;
-    });
+    const tableData = feed.map(item => [
+      new Date(item.date || item.createdAt).toLocaleDateString('en-IN'),
+      item.feedType.toUpperCase(),
+      item.description || item.note || item.feedType,
+      item.paidBy?.name || 'Roommate',
+      `INR ${item.amount}`
+    ]);
 
-    y += 10;
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Unified Transaction Feed", 14, y);
-    doc.line(14, y + 3, 196, y + 3);
-
-    y += 12;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    
-    feed.slice(0, 20).forEach(item => {
-      if (y > 270) {
+    doc.setFontSize(9);
+    tableData.forEach((row, i) => {
+      if (startY > 280) {
         doc.addPage();
-        y = 20;
+        startY = 20;
       }
-      const typeLabel = item.feedType.toUpperCase();
-      const name = item.paidBy?.name || 'Roommate';
-      const descText = item.description || (item.feedType === 'transfer' ? 'Transfer' : 'Settlement');
-      doc.text(`[${typeLabel}] ${descText} - Rs. ${item.amount.toFixed(2)} (${name})`, 14, y);
-      y += 8;
+      doc.text(row.join('  |  '), 14, startY);
+      startY += 7;
     });
 
-    doc.save(`SplitRoom_${house.name.replace(/\s+/g, '_')}_Statement.pdf`);
+    doc.save(`${houseTitle.replace(/\s+/g, '_')}_Statement.pdf`);
   };
 
-  if (!house) {
+  // Export Excel (.xlsx / .csv) Statement
+  const exportExcelStatement = () => {
+    const houseTitle = house?.name || 'SplitRoom';
+    const sheetData = feed.map((item, idx) => ({
+      '#': idx + 1,
+      'Date': new Date(item.date || item.createdAt).toLocaleDateString('en-IN'),
+      'Type': item.feedType.toUpperCase(),
+      'Description / Note': item.description || item.note || '-',
+      'Paid By': item.paidBy?.name || 'Roommate',
+      'Paid To': item.paidTo?.name || '-',
+      'Total Amount (₹)': item.amount,
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(sheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'House Statement');
+    XLSX.writeFile(workbook, `${houseTitle.replace(/\s+/g, '_')}_Statement.xlsx`);
+  };
+
+  // Open Dynamic UPI QR Modal
+  const openUpiQRModal = (name, amount) => {
+    const cleanAmt = Number(amount || 0).toFixed(2);
+    const upiUri = `upi://pay?pa=roommate@upi&pn=${encodeURIComponent(name)}&am=${cleanAmt}&cu=INR`;
+    setUpiModalData({ name, amount: cleanAmt, upiUri });
+  };
+
+  const filteredFeed = useMemo(() => {
+    if (logFilter === 'all') return feed;
+    return feed.filter(item => item.feedType === logFilter);
+  }, [feed, logFilter]);
+
+  if (!house && !loading) {
     return (
       <div className="container" style={{ paddingTop: '40px' }}>
-        <div className="card text-center" style={{ padding: '32px 16px' }}>
+        <div className="card text-center" style={{ padding: '40px 20px' }}>
           <span style={{ fontSize: '48px' }}>🏠</span>
-          <h2 style={{ fontSize: '20px', fontWeight: 700, marginTop: '16px', marginBottom: '8px' }}>
-            No House Registered
+          <h2 style={{ fontSize: '22px', fontWeight: 800, marginTop: '16px', marginBottom: '8px' }}>
+            Welcome to SplitRoom!
           </h2>
-          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: 1.5 }}>
-            To begin logging expenses and settling balances, you must either setup a new flat or join your flatmate's room using their invite code.
+          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '24px', maxWidth: '400px', margin: '0 auto 24px' }}>
+            You are not connected to a virtual flat room yet. Create a new room or join your roommates with an invite code.
           </p>
-          <a href="/house" className="btn btn-primary">Go to House Setup</a>
+          <a href="/house" className="btn btn-primary btn-lg">Set Up / Join House</a>
         </div>
       </div>
     );
   }
 
-  const myNet = balances?.my_balance || 0;
-  const owedToMe = balances?.owed_to_me || 0;
-  const iOwe = balances?.i_owe || 0;
-  
-  // Settle suggestion matching
-  const settleSuggestions = balances?.balances?.filter(b => b.balance < 0) || [];
-
-  // Check personal budget warnings
-  const userBudgetLimit = user?.budget_limit || 0;
-  // Calculate current user's expense shares total this month
-  let myExpenseShareTotal = 0;
-  const now = new Date();
-  feed.forEach(item => {
-    if (item.feedType === 'expense') {
-      const expDate = new Date(item.date || item.createdAt);
-      if (expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear()) {
-        const share = item.splitAmong?.find(s => s.user?._id?.toString() === currentUserId?.toString() || s.user?.toString() === currentUserId?.toString());
-        if (share) {
-          myExpenseShareTotal += share.amount;
-        }
-      }
-    }
-  });
-
-  const isBudgetWarning = userBudgetLimit > 0 && myExpenseShareTotal >= userBudgetLimit * 0.8;
-  const isBudgetExceeded = userBudgetLimit > 0 && myExpenseShareTotal >= userBudgetLimit;
-
   return (
-    <div className="container" style={{ paddingBottom: '80px' }}>
+    <div className="container">
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
 
-      {/* Budget Alerter */}
-      {userBudgetLimit > 0 && (
-        <div className="card" style={{ borderLeft: `5px solid ${isBudgetExceeded ? 'var(--accent-red)' : isBudgetWarning ? 'var(--accent-orange)' : 'var(--accent-green)'}`, padding: '16px' }}>
-          <div className="flex justify-between items-center">
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 700 }}>Personal Budget Cap</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Spent {formatCurrency(myExpenseShareTotal)} of {formatCurrency(userBudgetLimit)} target.
-              </div>
-            </div>
-            {isBudgetExceeded ? (
-              <span className="badge badge-red">limit exceeded ⚠️</span>
-            ) : isBudgetWarning ? (
-              <span className="badge badge-orange">80% limit warning ⚠️</span>
-            ) : (
-              <span className="badge badge-green">on budget ✅</span>
-            )}
+      {/* House Top Banner & Summary Cards */}
+      <div className="card" style={{ padding: '20px' }}>
+        <div className="flex justify-between items-center">
+          <div>
+            <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent-blue)', letterSpacing: '0.05em' }}>
+              Virtual Flat Room
+            </span>
+            <h1 style={{ fontSize: '24px', fontWeight: 800, margin: '2px 0 0 0' }}>
+              {house?.name || 'Loading...'}
+            </h1>
           </div>
-          <div style={{ height: '6px', background: 'var(--bg-secondary)', borderRadius: '3px', overflow: 'hidden', marginTop: '10px' }}>
-            <div style={{
-              height: '100%',
-              width: `${Math.min((myExpenseShareTotal / userBudgetLimit) * 100, 100)}%`,
-              background: isBudgetExceeded ? 'var(--accent-red)' : isBudgetWarning ? 'var(--accent-orange)' : 'var(--accent-green)'
-            }} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-secondary btn-sm" onClick={exportExcelStatement} title="Export to Excel">
+              📊 Excel
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={exportPDFStatement} title="Export PDF Statement">
+              📄 PDF
+            </button>
           </div>
         </div>
-      )}
 
-      {/* Room Net Balance Indicator */}
-      <div className="card" style={{ borderLeft: '5px solid var(--accent-blue)', padding: '20px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>
-          My Net Room Balance
-        </div>
-        <div style={{ fontSize: '36px', fontWeight: 800, color: myNet >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', margin: '4px 0 16px 0' }}>
-          {myNet >= 0 ? '+' : ''}{formatCurrency(myNet)}
-        </div>
-        
-        <div className="grid-2">
-          <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Owed to me</div>
-            <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--accent-green)', marginTop: '2px' }}>
-              {formatCurrency(owedToMe)}
-            </div>
+        {/* Roommate Balance Widget */}
+        <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-light)' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '12px' }}>
+            Your Flatmate Net Balances
           </div>
-          <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>I owe</div>
-            <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--accent-red)', marginTop: '2px' }}>
-              {formatCurrency(iOwe)}
+
+          {!balances || !balances.balances || balances.balances.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+              No room balance history available yet.
+            </p>
+          ) : (
+            <div className="grid-2">
+              {balances.balances.map((b) => {
+                const isOwedToMe = b.balance > 0;
+                const isIOwe = b.balance < 0;
+                const absVal = Math.abs(b.balance);
+
+                return (
+                  <div
+                    key={b.user_id}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius)',
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-light)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: 700 }}>{b.name}</div>
+                      <div style={{ fontSize: '12px', marginTop: '2px' }}>
+                        {b.balance === 0 ? (
+                          <span style={{ color: 'var(--text-muted)' }}>Settled up (₹0)</span>
+                        ) : isOwedToMe ? (
+                          <span style={{ color: 'var(--accent-green)', fontWeight: 700 }}>owes you {formatCurrency(absVal)}</span>
+                        ) : (
+                          <span style={{ color: 'var(--accent-red)', fontWeight: 700 }}>you owe {formatCurrency(absVal)}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {isIOwe && (
+                      <button
+                        className="btn btn-primary btn-sm"
+                        style={{ fontSize: '11px', padding: '4px 10px' }}
+                        onClick={() => openUpiQRModal(b.name, absVal)}
+                      >
+                        📲 Pay via UPI QR
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Settle Suggestions Quick-links */}
-      {settleSuggestions.length > 0 && (
-        <div className="card" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
-          <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--accent-red)', marginBottom: '8px' }}>
-            💡 Quick Settle Outstanding Debts
-          </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {settleSuggestions.map(s => (
-              <div key={s.user_id} className="flex justify-between items-center" style={{ background: 'var(--bg-card)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                <span style={{ fontSize: '13px', fontWeight: 600 }}>
-                  You owe <strong>{s.name}</strong> {formatCurrency(Math.abs(s.balance))}
-                </span>
-                <button
-                  className="btn btn-primary btn-sm"
-                  style={{ padding: '6px 12px', fontSize: '11px' }}
-                  onClick={() => {
-                    setRecipientId(s.user_id);
-                    setAmount(Math.abs(s.balance).toString());
-                    setDesc(`Settled up debt to ${s.name}`);
-                    setActiveActionTab('settlement');
-                    setShowActionModal(true);
-                  }}
-                >
-                  🤝 Pay Now
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Category Progress Segment Ring */}
-      {categorySummary.grandTotal > 0 && (
-        <div className="card">
-          <div className="flex justify-between items-center" style={{ marginBottom: '14px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Flat Spend Categories</h3>
-            <button className="btn btn-secondary btn-sm" onClick={handleDownloadPDF}>
-              📄 Download Report
-            </button>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {Object.keys(categorySummary.totals).map(catKey => {
-              const catInfo = getCategoryInfo(catKey);
-              const amount = categorySummary.totals[catKey];
-              const pct = Math.round((amount / categorySummary.grandTotal) * 100);
-
-              return (
-                <div key={catKey}>
-                  <div className="flex justify-between text-xs font-semibold" style={{ marginBottom: '4px' }}>
-                    <span>{catInfo.icon} {catInfo.label} ({pct}%)</span>
-                    <span>{formatCurrency(amount)}</span>
-                  </div>
-                  <div style={{ height: '6px', background: 'var(--bg-secondary)', borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${pct}%`, background: catInfo.color || '#3b82f6', borderRadius: '3px' }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Digital Notice Board Widget */}
-      <div className="card">
-        <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px' }}>📌 Sticky Notice Board</h3>
-        
-        {/* Sticky Notes Grid */}
-        {notices.length === 0 ? (
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center', padding: '16px 0' }}>
-            No sticky notes posted. Leave a message for your flatmates below!
-          </p>
+      {/* Category Spend Analytics Segment Bar */}
+      <div className="card" style={{ padding: '20px' }}>
+        <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px' }}>📊 Household Expense Category Analytics</h3>
+        {categorySummary.grandTotal === 0 ? (
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>No expense logs for chart breakdown.</p>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: '16px' }}>
+          <div>
+            <div style={{ display: 'flex', height: '14px', borderRadius: '7px', overflow: 'hidden', marginBottom: '14px' }}>
+              {EXPENSE_CATEGORIES.map(cat => {
+                const amt = categorySummary.totals[cat.value] || 0;
+                if (!amt) return null;
+                const pct = (amt / categorySummary.grandTotal) * 100;
+                return (
+                  <div
+                    key={cat.value}
+                    title={`${cat.label}: ${formatCurrency(amt)} (${pct.toFixed(1)}%)`}
+                    style={{ width: `${pct}%`, background: cat.color }}
+                  />
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+              {EXPENSE_CATEGORIES.map(cat => {
+                const amt = categorySummary.totals[cat.value] || 0;
+                if (!amt) return null;
+                return (
+                  <div key={cat.value} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: cat.color, display: 'inline-block' }} />
+                    <span style={{ fontWeight: 600 }}>{cat.icon} {cat.label}:</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{formatCurrency(amt)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Room Sticky Notice Board */}
+      <div className="card" style={{ padding: '20px' }}>
+        <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px' }}>📌 Room Sticky Notice Board</h3>
+        
+        <form onSubmit={handlePostNotice} style={{ display: 'flex', gap: 8, marginBottom: '16px' }}>
+          <input
+            className="input"
+            type="text"
+            placeholder="Pin a sticky note for roommates (e.g. WiFi password, Maid coming at 10 AM)"
+            value={newNoticeText}
+            onChange={(e) => setNewNoticeText(e.target.value)}
+          />
+          <button className="btn btn-primary" type="submit" disabled={postingNotice}>
+            Pin Note
+          </button>
+        </form>
+
+        {notices.length === 0 ? (
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No active sticky notes pinned.</p>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             {notices.map(n => (
               <div
                 key={n._id}
                 style={{
-                  background: n.color || '#fffbeb',
-                  color: '#0f172a',
-                  padding: '12px',
+                  padding: '12px 14px',
                   borderRadius: 'var(--radius)',
-                  border: '1px solid rgba(0,0,0,0.06)',
+                  background: n.color || '#fffbeb',
+                  color: '#1e293b',
+                  fontSize: '13px',
+                  fontWeight: 600,
                   boxShadow: 'var(--shadow-sm)',
-                  position: 'relative',
                   display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  minHeight: '90px'
+                  alignItems: 'center',
+                  gap: 12,
+                  maxWidth: '300px'
                 }}
               >
+                <div style={{ flex: 1 }}>{n.text}</div>
                 <button
-                  onClick={() => handleClearNotice(n._id)}
-                  style={{
-                    position: 'absolute',
-                    top: '6px',
-                    right: '6px',
-                    background: 'rgba(0,0,0,0.05)',
-                    border: 'none',
-                    borderRadius: '50%',
-                    width: '18px',
-                    height: '18px',
-                    cursor: 'pointer',
-                    fontSize: '9px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
+                  onClick={() => handleDeleteNotice(n._id)}
+                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8', fontSize: '12px' }}
                 >
                   ✕
                 </button>
-                <div style={{ fontSize: '12px', fontWeight: 500, lineHeight: 1.4, wordBreak: 'break-word', paddingRight: '12px' }}>
-                  {n.content}
-                </div>
-                <div style={{ fontSize: '9px', opacity: 0.6, marginTop: '8px', textAlign: 'right' }}>
-                  — {n.createdBy?.name || 'Flatmate'}
-                </div>
               </div>
             ))}
           </div>
         )}
-
-        {/* Add Notice Input */}
-        <form onSubmit={handlePostNotice} className="flex gap-2">
-          <input
-            className="input"
-            type="text"
-            placeholder="E.g. Maid won't come today..."
-            value={newNoticeText}
-            onChange={(e) => setNewNoticeText(e.target.value)}
-            style={{ flex: 1, fontSize: '13px' }}
-            required
-          />
-          <select
-            className="select"
-            value={newNoticeColor}
-            onChange={(e) => setNewNoticeColor(e.target.value)}
-            style={{ width: '80px', padding: '6px', fontSize: '12px' }}
-          >
-            <option value="#fffbeb">🟨 Yellow</option>
-            <option value="#eff6ff">🟦 Blue</option>
-            <option value="#ecfdf5">🟩 Green</option>
-            <option value="#fdf2f8">🟥 Pink</option>
-          </select>
-          <button type="submit" className="btn btn-primary btn-sm" disabled={postingNotice}>
-            📌 Post
-          </button>
-        </form>
       </div>
 
-      {/* Unified Activity Feed */}
-      <div className="card" style={{ padding: '16px 0' }}>
-        <div style={{ padding: '0 16px 12px 16px', borderBottom: '1px solid var(--border-light)' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Unified Activity Feed</h3>
+      {/* Unified Activity Feed / Log Card */}
+      <div className="card" style={{ padding: '20px 0', marginBottom: '80px' }}>
+        <div style={{ padding: '0 20px 14px 20px', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Unified Activity Log</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+              Clear breakdown of all room expenses, transfers & settlements
+            </p>
+          </div>
+
+          {/* Log Filter Tabs */}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-secondary)', padding: '3px', borderRadius: 'var(--radius-sm)' }}>
+            {['all', 'expense', 'transfer', 'settlement'].map(f => (
+              <button
+                key={f}
+                onClick={() => setLogFilter(f)}
+                style={{
+                  border: 'none',
+                  background: logFilter === f ? 'var(--bg-card)' : 'transparent',
+                  color: logFilter === f ? 'var(--text-primary)' : 'var(--text-muted)',
+                  fontSize: '11px',
+                  fontWeight: logFilter === f ? 700 : 500,
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  textTransform: 'capitalize'
+                }}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {feed.length === 0 ? (
-          <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '24px 0' }}>
-            No room activity logged. Use the floating action button below!
+        {loading ? (
+          <div className="text-center" style={{ padding: '32px 0' }}>
+            <div className="loading-spinner" style={{ margin: '0 auto' }} />
+          </div>
+        ) : filteredFeed.length === 0 ? (
+          <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '32px 0' }}>
+            No activity logs match filter "{logFilter}".
           </p>
         ) : (
           <div>
-            {feed.map((item, idx) => {
+            {filteredFeed.map((item, idx) => {
               const payerName = item.paidBy?.name || 'Roommate';
               const formattedAmt = formatCurrency(item.amount);
-              const isPayer = item.paidBy?._id?.toString() === currentUserId || item.paidBy?.toString() === currentUserId;
-
-              let typeBadgeColor = 'badge-blue';
-              let actionSummary = '';
-              let badgeIcon = '💸';
 
               const payerIdStr = (item.paidBy?._id || item.paidBy)?.toString();
               const recipientIdStr = (item.paidTo?._id || item.paidTo)?.toString();
               const myIdStr = (currentUserId || '').toString();
               const isSplitMember = Array.isArray(item.splitAmong) && item.splitAmong.some(s => (s.user?._id || s.user)?.toString() === myIdStr);
               const canDelete = payerIdStr === myIdStr || recipientIdStr === myIdStr || isSplitMember;
+
+              let typeBadgeColor = 'badge-blue';
+              let actionSummary = '';
+              let badgeIcon = '💸';
 
               if (item.feedType === 'expense') {
                 typeBadgeColor = 'badge-blue';
@@ -632,24 +606,30 @@ export default function DashboardPage() {
               }
 
               return (
-
-
                 <div
                   key={item._id || idx}
                   className="flex justify-between items-center"
                   style={{
-                    padding: '12px 16px',
-                    borderBottom: idx < feed.length - 1 ? '1px solid var(--border-light)' : 'none'
+                    padding: '14px 20px',
+                    borderBottom: idx < filteredFeed.length - 1 ? '1px solid var(--border-light)' : 'none'
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span className={`badge ${typeBadgeColor}`} style={{ padding: '2px 6px', fontSize: '10px' }}>
+                      <span className={`badge ${typeBadgeColor}`} style={{ padding: '2px 8px', fontSize: '10px', textTransform: 'uppercase' }}>
                         {badgeIcon} {item.feedType}
                       </span>
-                      {item.receipt_image && <span style={{ fontSize: '12px' }}>📎</span>}
+                      {item.receipt_image && (
+                        <button
+                          onClick={() => setPreviewImage(item.receipt_image)}
+                          style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '12px' }}
+                          title="View Receipt Image"
+                        >
+                          📎 Receipt
+                        </button>
+                      )}
                     </div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, marginTop: '4px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '4px' }}>
                       {actionSummary}
                     </div>
                     <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -657,11 +637,11 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                    <div style={{ fontSize: '14px', fontWeight: 700 }}>{formattedAmt}</div>
+                    <div style={{ fontSize: '15px', fontWeight: 800 }}>{formattedAmt}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {item.feedType === 'expense' && (
                         <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                          Share: {formatCurrency(item.splitAmong?.find(s => s.user?._id?.toString() === currentUserId || s.user?.toString() === currentUserId)?.amount || 0)}
+                          Your Share: {formatCurrency(item.splitAmong?.find(s => s.user?._id?.toString() === currentUserId || s.user?.toString() === currentUserId)?.amount || 0)}
                         </span>
                       )}
                       {canDelete && (
@@ -671,16 +651,14 @@ export default function DashboardPage() {
                           onClick={() => handleDeleteFeedItem(item)}
                           title="Delete record"
                         >
-                          🗑️
+                          🗑️ Delete
                         </button>
                       )}
-
                     </div>
                   </div>
                 </div>
               );
             })}
-
           </div>
         )}
       </div>
@@ -699,57 +677,60 @@ export default function DashboardPage() {
           width: '56px',
           height: '56px',
           fontSize: '24px',
-          boxShadow: 'var(--shadow-lg)',
+          boxShadow: 'var(--shadow-xl)',
           cursor: 'pointer',
-          zIndex: 900,
+          zIndex: 90,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          transition: 'var(--transition)'
+          justifyContent: 'center'
         }}
+        title="Quick Log Transaction"
       >
         ➕
       </button>
 
-      {/* Unified Action Modal Drawer */}
+      {/* Unified Action Drawer Modal */}
       {showActionModal && (
         <div className="modal-overlay" onClick={() => setShowActionModal(false)}>
-          <div className="modal animate-fade" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px', padding: '24px' }}>
-            
-            {/* Action Tab Headers */}
-            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '20px' }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center" style={{ marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Log Transaction</h3>
+              <button
+                onClick={() => setShowActionModal(false)}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '18px' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="tabs" style={{ marginBottom: '16px' }}>
               <button
                 className={`tab ${activeActionTab === 'expense' ? 'active' : ''}`}
-                style={{ flex: 1, paddingBottom: '10px', fontSize: '13px', background: 'none', border: 'none', fontWeight: 600, cursor: 'pointer' }}
-                onClick={() => { setActiveActionTab('expense'); setError(''); }}
+                onClick={() => setActiveActionTab('expense')}
               >
                 💸 Expense
               </button>
               <button
                 className={`tab ${activeActionTab === 'transfer' ? 'active' : ''}`}
-                style={{ flex: 1, paddingBottom: '10px', fontSize: '13px', background: 'none', border: 'none', fontWeight: 600, cursor: 'pointer' }}
-                onClick={() => { setActiveActionTab('transfer'); setError(''); }}
+                onClick={() => setActiveActionTab('transfer')}
               >
                 🔄 Transfer
               </button>
               <button
                 className={`tab ${activeActionTab === 'settlement' ? 'active' : ''}`}
-                style={{ flex: 1, paddingBottom: '10px', fontSize: '13px', background: 'none', border: 'none', fontWeight: 600, cursor: 'pointer' }}
-                onClick={() => { setActiveActionTab('settlement'); setError(''); }}
+                onClick={() => setActiveActionTab('settlement')}
               >
                 🤝 Settle Up
               </button>
             </div>
 
             <form onSubmit={handleLogAction}>
-              {/* Common Amount Input */}
               <div className="form-group">
                 <label className="label">Amount (₹) *</label>
                 <input
                   className="input"
                   type="number"
-                  step="0.01"
-                  placeholder="0.00"
+                  placeholder="E.g. 500"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   required
@@ -799,7 +780,6 @@ export default function DashboardPage() {
                       ))}
                     </select>
                   </div>
-
                 </>
               ) : (
                 <>
@@ -822,11 +802,11 @@ export default function DashboardPage() {
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="label">Notes / Remarks</label>
+                    <label className="label">Notes / Reference</label>
                     <input
                       className="input"
                       type="text"
-                      placeholder="E.g. Sent via UPI"
+                      placeholder="E.g. Settled electricity bill via GPay"
                       value={desc}
                       onChange={(e) => setDesc(e.target.value)}
                     />
@@ -834,8 +814,7 @@ export default function DashboardPage() {
                 </>
               )}
 
-              {/* Submit Buttons */}
-              <div style={{ display: 'flex', gap: 8, marginTop: '24px' }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: '16px' }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -844,16 +823,58 @@ export default function DashboardPage() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  style={{ flex: 1 }}
-                  disabled={submittingAction}
-                >
-                  {submittingAction ? 'Logging...' : 'Confirm'}
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
+                  Log {activeActionTab}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic UPI QR Code Modal */}
+      {upiModalData && (
+        <div className="modal-overlay" onClick={() => setUpiModalData(null)}>
+          <div className="modal text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center" style={{ marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Pay {upiModalData.name}</h3>
+              <button onClick={() => setUpiModalData(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '18px' }}>
+                ✕
+              </button>
+            </div>
+
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Scan with GPay, PhonePe, Paytm, or BHIM to pay <strong>{formatCurrency(upiModalData.amount)}</strong>
+            </p>
+
+            <div style={{ background: '#ffffff', padding: '16px', borderRadius: 'var(--radius)', display: 'inline-block', marginBottom: '16px' }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiModalData.upiUri)}`}
+                alt="UPI Payment QR Code"
+                style={{ width: '180px', height: '180px' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <a href={upiModalData.upiUri} className="btn btn-primary" style={{ flex: 1 }}>
+                📲 Open GPay / PhonePe App
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Receipt Image Modal */}
+      {previewImage && (
+        <div className="modal-overlay" onClick={() => setPreviewImage(null)}>
+          <div className="modal text-center" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="flex justify-between items-center" style={{ marginBottom: '12px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Receipt Preview</h3>
+              <button onClick={() => setPreviewImage(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '18px' }}>
+                ✕
+              </button>
+            </div>
+            <img src={previewImage} alt="Receipt Preview" style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 'var(--radius)' }} />
           </div>
         </div>
       )}

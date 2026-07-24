@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { authAPI } from '../services/api';
 
 export default function ProfilePage() {
   const { user, logout, updateUser } = useAuth();
+  const { theme, toggleTheme, accent, changeAccent, ACCENT_THEMES } = useTheme();
   const navigate = useNavigate();
 
   // Profile Edit State
@@ -97,6 +99,56 @@ export default function ProfilePage() {
     <div className="container">
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
+
+      {/* Theme & Appearance Customizer Card */}
+      <div className="card">
+        <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '16px' }}>🎨 Personalize Theme & Accent</h3>
+        <div style={{ marginBottom: '20px' }}>
+          <label className="label">Mode Theme</label>
+          <button className="btn btn-secondary" onClick={toggleTheme} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {theme === 'dark' ? '☀️ Switch to Light Mode' : '🌙 Switch to Dark Mode'}
+          </button>
+        </div>
+
+        <div>
+          <label className="label">Accent Color Theme</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: '8px' }}>
+            {Object.keys(ACCENT_THEMES).map((colorKey) => {
+              const item = ACCENT_THEMES[colorKey];
+              const isSelected = accent === colorKey;
+              return (
+                <button
+                  key={colorKey}
+                  onClick={() => changeAccent(colorKey)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 14px',
+                    borderRadius: 'var(--radius)',
+                    border: isSelected ? '2px solid var(--text-primary)' : '1px solid var(--border)',
+                    background: 'var(--bg-card)',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: isSelected ? 700 : 500,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 14,
+                      height: 14,
+                      borderRadius: '50%',
+                      background: item.primary,
+                      display: 'inline-block'
+                    }}
+                  />
+                  {item.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       {/* Profile Details card */}
       <div className="card">

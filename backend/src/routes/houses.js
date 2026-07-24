@@ -16,6 +16,9 @@ const {
   getNotices,
   createNotice,
   deleteNotice,
+  getGuests,
+  addGuest,
+  deleteGuest,
 } = require('../controllers/houseController');
 
 // All house routes require auth (applied in app.js)
@@ -27,6 +30,11 @@ router.post('/join', joinHouse);
 router.get('/notices', getNotices);
 router.post('/notices', createNotice);
 router.delete('/notices/:id', deleteNotice);
+
+router.get('/guests', getGuests);
+router.post('/guests', addGuest);
+router.delete('/guests/:id', deleteGuest);
+
 
 router.get('/:id', getHouseById);
 router.put('/:id', updateHouse);

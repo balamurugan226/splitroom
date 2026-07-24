@@ -376,6 +376,60 @@ async function deleteNotice(req, res) {
   }
 }
 
+async function getGuests(req, res) {
+  try {
+    const userId = req.user.id;
+    const house = await House.findOne({ members: userId }).populate('guests.addedBy', 'name');
+    if (!house) return res.status(200).json({ success: true, guests: [] });
+    return res.status(200).json({ success: true, guests: house.guests || [] });
+  } catch (err) {
+    console.error('[getGuests]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
+async function addGuest(req, res) {
+  try {
+    const userId = req.user.id;
+    const house = await House.findOne({ members: userId });
+    if (!house) return res.status(403).json({ success: false, message: 'Not in a house.' });
+
+    const { name, startDate, endDate, note } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ success: false, message: 'Guest name is required.' });
+
+    house.guests.push({
+      name: name.trim(),
+      startDate: startDate ? new Date(startDate) : new Date(),
+      endDate: endDate ? new Date(endDate) : null,
+      note: note || '',
+      addedBy: userId
+    });
+
+    await house.save();
+    const updated = await House.findById(house._id).populate('guests.addedBy', 'name');
+    return res.status(201).json({ success: true, guests: updated.guests || [] });
+  } catch (err) {
+    console.error('[addGuest]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
+async function deleteGuest(req, res) {
+  try {
+    const userId = req.user.id;
+    const house = await House.findOne({ members: userId });
+    if (!house) return res.status(403).json({ success: false, message: 'Not in a house.' });
+
+    house.guests = house.guests.filter(g => g._id.toString() !== req.params.id);
+    await house.save();
+
+    return res.status(200).json({ success: true, message: 'Guest record removed.' });
+  } catch (err) {
+    console.error('[deleteGuest]', err);
+    return res.status(500).json({ success: false, message: 'Server error.' });
+  }
+}
+
 module.exports = {
   createHouse,
   getMyHouse,
@@ -390,4 +444,8 @@ module.exports = {
   getNotices,
   createNotice,
   deleteNotice,
+  getGuests,
+  addGuest,
+  deleteGuest,
 };
+

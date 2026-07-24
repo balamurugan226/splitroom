@@ -26,7 +26,17 @@ const houseSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-  }
+  },
+  guests: [{
+    name: String,
+    startDate: Date,
+    endDate: Date,
+    note: String,
+    addedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
+  }]
 }, { timestamps: true });
 
 module.exports = mongoose.model('House', houseSchema);

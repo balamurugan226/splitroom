@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHouse } from '../contexts/HouseContext';
 import { houseAPI } from '../services/api';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, formatDate } from '../utils/formatters';
 
 export default function HousePage() {
   const { house, refreshHouse } = useHouse();
@@ -22,6 +22,64 @@ export default function HousePage() {
   const [editName, setEditName] = useState('');
   const [editRent, setEditRent] = useState('');
   const [editDueDay, setEditDueDay] = useState('');
+
+  // Guest Stay Tracker state
+  const [guests, setGuests] = useState([]);
+  const [guestName, setGuestName] = useState('');
+  const [guestStart, setGuestStart] = useState('');
+  const [guestEnd, setGuestEnd] = useState('');
+  const [guestNote, setGuestNote] = useState('');
+  const [showGuestForm, setShowGuestForm] = useState(false);
+
+  const fetchGuests = useCallback(async () => {
+    if (!house) return;
+    try {
+      const res = await houseAPI.getGuests();
+      setGuests(res.data.guests || []);
+    } catch {
+      // silent
+    }
+  }, [house]);
+
+  useEffect(() => {
+    fetchGuests();
+  }, [fetchGuests]);
+
+  const handleAddGuest = async (e) => {
+    e.preventDefault();
+    if (!guestName.trim()) return;
+    try {
+      setError('');
+      setSuccess('');
+      const res = await houseAPI.addGuest({
+        name: guestName.trim(),
+        startDate: guestStart,
+        endDate: guestEnd,
+        note: guestNote.trim()
+      });
+      setGuests(res.data.guests || []);
+      setSuccess('Guest stay logged successfully!');
+      setGuestName('');
+      setGuestStart('');
+      setGuestEnd('');
+      setGuestNote('');
+      setShowGuestForm(false);
+    } catch (err) {
+      setError('Failed to log guest stay.');
+    }
+  };
+
+  const handleDeleteGuest = async (id) => {
+    if (!window.confirm('Remove this guest stay entry?')) return;
+    try {
+      setError('');
+      await houseAPI.deleteGuest(id);
+      setSuccess('Guest stay removed.');
+      fetchGuests();
+    } catch {
+      setError('Failed to remove guest.');
+    }
+  };
 
   const handleJoinHouse = async (e) => {
     e.preventDefault();
@@ -410,6 +468,97 @@ export default function HousePage() {
               <button className="btn btn-secondary btn-sm" style={{ width: '100%' }} onClick={handleRegenerateInvite}>
                 🔄 Regenerate Code
               </button>
+            )}
+          </div>
+
+          {/* Guest / Visitor Stay Tracker Card */}
+          <div className="card">
+            <div className="flex justify-between items-center" style={{ marginBottom: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 700 }}>🔑 Guest & Visitor Stay Log</h3>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Track visiting friends or overnight guests</p>
+              </div>
+              {!showGuestForm && (
+                <button className="btn btn-primary btn-sm" onClick={() => setShowGuestForm(true)}>
+                  ➕ Log Guest
+                </button>
+              )}
+            </div>
+
+            {showGuestForm && (
+              <form onSubmit={handleAddGuest} style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: 'var(--radius)', marginBottom: '16px' }}>
+                <div className="form-group">
+                  <label className="label">Guest Name *</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="E.g. Rahul (Hariprakash's friend)"
+                    value={guestName}
+                    onChange={(e) => setGuestName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="label">Check-in Date</label>
+                    <input
+                      className="input"
+                      type="date"
+                      value={guestStart}
+                      onChange={(e) => setGuestStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="label">Check-out Date</label>
+                    <input
+                      className="input"
+                      type="date"
+                      value={guestEnd}
+                      onChange={(e) => setGuestEnd(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="label">Notes</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="E.g. Staying 3 days for weekend"
+                    value={guestNote}
+                    onChange={(e) => setGuestNote(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: '8px' }}>
+                  <button type="button" className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => setShowGuestForm(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary btn-sm" style={{ flex: 1 }}>
+                    Save Guest Log
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {guests.length === 0 ? (
+              <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '12px 0' }}>
+                No active guest stays logged.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {guests.map((g) => (
+                  <div key={g._id} className="flex justify-between items-center" style={{ padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)' }}>
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 700 }}>👤 {g.name}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {formatDate(g.startDate)} {g.endDate ? `to ${formatDate(g.endDate)}` : ''} {g.note ? `• ${g.note}` : ''}
+                      </div>
+                    </div>
+                    <button className="btn btn-secondary btn-sm" style={{ padding: '2px 6px', color: 'var(--accent-red)' }} onClick={() => handleDeleteGuest(g._id)}>
+                      🗑️
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
