@@ -114,7 +114,8 @@ async function login(req, res) {
  */
 async function forgotPassword(req, res) {
   try {
-    const { email } = req.body;
+    const { email, newPassword, password } = req.body;
+    const finalPassword = newPassword || password;
 
     if (!email || !email.trim()) {
       return res.status(400).json({ success: false, message: 'Email is required.' });
@@ -122,19 +123,28 @@ async function forgotPassword(req, res) {
 
     const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
-      return res.status(200).json({ success: true, message: 'Reset token logged to console (if account exists).' });
+      return res.status(404).json({ success: false, message: 'No account found with this email address.' });
     }
 
-    const resetToken = uuidv4();
-    console.log(`Password reset token for ${user.email}: ${resetToken}`);
+    if (finalPassword) {
+      if (finalPassword.length < 6) {
+        return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
+      }
 
-    return res.status(200).json({
-      success: true,
-      message: 'Reset token logged to console.',
-    });
+      const hashedPassword = await hashPassword(finalPassword);
+      user.password = hashedPassword;
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message: 'Password changed successfully! You can now log in with your new password.',
+      });
+    }
+
+    return res.status(400).json({ success: false, message: 'New password is required.' });
   } catch (err) {
     console.error('[forgotPassword]', err);
-    return res.status(500).json({ success: false, message: 'Server error.', error: err.message });
+    return res.status(500).json({ success: false, message: 'Server error during password reset.', error: err.message });
   }
 }
 
