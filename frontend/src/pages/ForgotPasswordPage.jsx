@@ -7,6 +7,7 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -16,7 +17,8 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setError('');
 
-    if (!validateEmail(email)) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !validateEmail(cleanEmail)) {
       setError('Please enter a valid email address.');
       return;
     }
@@ -38,7 +40,7 @@ export default function ForgotPasswordPage() {
 
     try {
       setLoading(true);
-      await authAPI.forgotPassword({ email, newPassword });
+      await authAPI.forgotPassword({ email: cleanEmail, newPassword });
       setSuccess(true);
     } catch (err) {
       setError(
@@ -100,30 +102,54 @@ export default function ForgotPasswordPage() {
 
             <div className="form-group" style={{ marginBottom: '14px' }}>
               <label className="label" htmlFor="new-password-input">New Password</label>
-              <input
-                id="new-password-input"
-                className="input"
-                type="password"
-                placeholder="At least 6 characters"
-                value={newPassword}
-                onChange={(e) => { setNewPassword(e.target.value); setError(''); }}
-                required
-                minLength={6}
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="new-password-input"
+                  className="input"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="At least 6 characters"
+                  value={newPassword}
+                  onChange={(e) => { setNewPassword(e.target.value); setError(''); }}
+                  required
+                  minLength={6}
+                  style={{ paddingRight: '60px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '12px'
+                  }}
+                >
+                  {showPassword ? 'HIDE' : 'SHOW'}
+                </button>
+              </div>
             </div>
 
             <div className="form-group" style={{ marginBottom: '18px' }}>
               <label className="label" htmlFor="confirm-password-input">Confirm New Password</label>
-              <input
-                id="confirm-password-input"
-                className="input"
-                type="password"
-                placeholder="Re-enter new password"
-                value={confirmPassword}
-                onChange={(e) => { setConfirmPassword(e.target.value); setError(''); }}
-                required
-                minLength={6}
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="confirm-password-input"
+                  className="input"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Re-enter new password"
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setError(''); }}
+                  required
+                  minLength={6}
+                  style={{ paddingRight: '60px' }}
+                />
+              </div>
             </div>
 
             <button

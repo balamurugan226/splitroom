@@ -114,20 +114,32 @@ async function login(req, res) {
  */
 async function forgotPassword(req, res) {
   try {
-    const { email, newPassword, password } = req.body;
-    const finalPassword = newPassword || password;
+    let rawEmail = req.body.email;
+    if (typeof rawEmail === 'object' && rawEmail !== null) {
+      rawEmail = rawEmail.email || '';
+    }
+    const finalPassword = req.body.newPassword || req.body.new_password || req.body.password;
 
-    if (!email || !email.trim()) {
+    if (!rawEmail || !String(rawEmail).trim()) {
       return res.status(400).json({ success: false, message: 'Email is required.' });
     }
 
-    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    const trimmedEmail = String(rawEmail).trim();
+    const escapedEmail = trimmedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const user = await User.findOne({
+      $or: [
+        { email: trimmedEmail.toLowerCase() },
+        { email: { $regex: new RegExp(`^${escapedEmail}$`, 'i') } }
+      ]
+    });
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'No account found with this email address.' });
     }
 
     if (finalPassword) {
-      if (finalPassword.length < 6) {
+      if (typeof finalPassword !== 'string' || finalPassword.length < 6) {
         return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
       }
 

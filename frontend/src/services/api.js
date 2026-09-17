@@ -4,8 +4,16 @@ const getBaseURL = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  // Local development
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  const hostname = window.location.hostname;
+  // Local development / LAN access
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname.startsWith('192.168.') ||
+    hostname.startsWith('10.') ||
+    hostname.startsWith('172.') ||
+    hostname.endsWith('.local')
+  ) {
     return '/api';
   }
   // Deployed production fallback
@@ -39,7 +47,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('splitroom_token');
       // Only redirect if not already on login/register pages
-      if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+      if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register') && !window.location.pathname.startsWith('/forgot-password')) {
         window.location.href = '/login';
       }
     }
@@ -53,7 +61,11 @@ export default api;
 export const authAPI = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
-  forgotPassword: (data) => api.post('/auth/forgot-password', typeof data === 'string' ? { email: data } : data),
+  forgotPassword: (data) =>
+    api.post(
+      '/auth/forgot-password',
+      typeof data === 'string' ? { email: data } : data
+    ),
   getProfile: () => api.get('/auth/profile'),
   updateProfile: (data) => api.put('/auth/profile', data),
   changePassword: (data) => api.put('/auth/change-password', data),
